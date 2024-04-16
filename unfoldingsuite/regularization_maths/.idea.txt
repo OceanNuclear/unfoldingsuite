@@ -1,0 +1,10 @@
+Write your unfoldingsuite documentation /thesis like this:
+__________________________________________________________
+|Initial assumption|Algorithm    |benchmarking results...|
+__________________________________________________________
+
+|fix chi2, min D_KL|AMAXED       |
+|fix chi2, min S   |MAXED        |
+|min chi2, downhill|PseudoInverse|
+|min chi2, ??      |GRAVEL       |
+__________________________________

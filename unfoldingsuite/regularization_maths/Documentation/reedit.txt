@@ -1,0 +1,25 @@
+When choosing a regularizing function, it is desirable to have the following features:
+1. Can naturally obey the physical requirement of having no negative flux without applying additional external constraint onto the set of equations;
+2. For the same amount of absolute deviation $\Delta \phi$, harsher penalty should be given to bin with lower \apriori flux.
+	Penalty contributed by the i-th bin> penalty contributed by the j-th bin if $|\phi{sol,i}-\phi_{0,i}|=\Delta\phi=|\phi_{sol,j}-\phi_{0,j}|$
+
+To satisfy both of these values, 
+- The gradient of the loss function approaches negative infinity as appraoches
+- The magnitude of the 2$^{nd}$ order derivative of the loss function must increase with decreasing a priori value $\phi_{0i}$
+
+Others considered before writing this program:
+- Fractional deviation
+	-Obeys point 1 but not 2
+- Mean squared deviation in log space:
+- Absolute deviation in log space:
+- Determinant of the Fisher information matrix. (NOTE: Fisher information of a variable vector (which the neutron spectrum is) should form a MATRIX, not a scalar, unlike the papers \cite{FisherRegularisation}\cite{FirstResultsOfMFRJETNE213} mentioned.)
+
+Relative entropy satisfies the above,
+With the additional benefit of:
+- being the only unique and non-self-contradictory metric that can be used to measure deviation between probability distributions 
+
+Therefore Relative Entropy was chosen.
+
+There are other implementations of the regularization method in ways that does not require an \apriori. Take minimum (self-)entropy for example, which is the algorithm used by \cite{}\cite{}. This is only a special implementation of the principle of Maximum Entropy, where a naive \apriori is assumed, i.e. it is equivalent to using a flat \apriori in MAXED.
+
+-Serendipiteiously has no local trapping suboptimal points, allowing us to use the following method of Lagrangian minimization, which guarantees to find one and only one solution within the constraints.

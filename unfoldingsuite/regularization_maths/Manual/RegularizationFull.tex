@@ -1,0 +1,419 @@
+%`
+%\nonstopmode
+\hbadness=100000
+\documentclass[a4paper, 12pt]{article}
+\usepackage{amsmath,amsfonts,caption,float,geometry,graphicx,mathtools,pythonhighlight,textcomp,url,verbatim,subcaption,tabularx, longtable, ulem, relsize, empheq, hyperref} %,parskip
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\geometry{a4paper, total={160mm,247mm}, left=25mm, top=25mm}
+\newcommand{\matr}[1]{\uuline{\bf{#1}}}
+\newcommand{\ve}[1]{\boldsymbol{#1}}
+\newcommand{\n}[0]{\ve{\hat{n}}}
+\newcommand{\covarN}{\matr{S_N}^{-1}}
+\newcommand{\covarR}{\matr{S_R}^{-1}}
+\newcommand{\apriori}[0]{\textit{a priori} }
+\newcommand{\tens}{\mathbin{\mathop{\otimes}}}
+\newcommand{\tff}{\left(\frac{\tau f^{DEF}_i}{f^{g}_i}\right)}
+\newcommand{\dff}{\left(\frac{d f^{g}_i}{f^{g}_i}\right)}
+\newcommand{\ncs}{\nabla\chi^2}
+\newcommand{\RSR}{\matr{R}^T\covarN\matr{R}}
+\newcommand{\pythoncode}[2]{
+\begin{adjustwidth}{-1.3cm}{-1.3cm}
+\texttt{#1}
+\inputpython{#2}{1}{1500}
+\end{adjustwidth}
+}
+\usepackage[toc, page]{appendix}
+% \usepackage[dvipsnames]{xcolor}
+% \definecolor{subr}{rgb}{0.8, 0.33, 0.0}
+% \definecolor{func}{rgb}{0.76, 0.6, 0.42}
+
+\begin{document}
+% \includegraphics[width=8cm]{CoverPage/UoBlogo.pdf}
+% \hrule
+% \bigbreak
+% \textbf{F}usion Neutron \textbf{Acti}vation Spectra \textbf{U}nfolding by \textbf{N}eural \textbf{N}etworks \\
+% (FACTIUNN)                                      \\
+% \hrule
+% \bigbreak
+% \begin{minipage}[b]{0.4\textwidth}
+%     \includegraphics[height=2cm]{CoverPage/CCFElogo.jpeg}
+%   \end{minipage}
+%   \hfill
+%   \begin{minipage}[b]{0.4\textwidth}
+%     \includegraphics[height=3cm]{CoverPage/UKAEAlogo.jpeg}
+% \end{minipage}
+    
+\begin{table}[!h]
+\centering
+\begin{tabular}{rl}
+Author:&Hoi Yeung Wong  \\
+       &(Ocean Wong)    \\
+Director of Studies:&Robin Smith    \\
+Primary Supervisor:&Chantal Nobs    \\
+% Secondary supervisor:&Andrew Alderson    \\
+Organization:& Culham Centre for Fusion Energy\\
+Date:  &December 2019 \\
+\end{tabular}
+\end{table}
+\hrule
+\bigbreak
+
+\abstract
+In this document, the method of particle spectrum unfolding using Tikhonov Regularization is introduced. Relative-entropy was used as the regularizing function.
+% The same framework of minimizing the loss function, linearization of loss function gradient landscape, and proving the uniqueness (or non-uniqueness) of the global minimum, can be re-used by other researches who wishes to create a different regularization program based on another (or multiple others) metric(s).
+% 
+
+This is the same unfolding method as the one underlying the popular unfolding code MAXED, but with several improvements, including improved accuracy of neutron yield estimation, and increased flexibility for the user to choose the Tikhonov regularization parameter to avoid overfitting.
+
+% \hline
+% \twocolumn
+\chapter{A general neutron spectrum unfolding algorithm by regularization using relative-entropy}
+\section{Background}
+Regularization algorithms aim to minimize a metric, which is a sum of two quantities: $(\chi^2)_{reaction rates}$, and another quantity measuring the deviation of the solution spectrum from the \apriori spectrum. The mixing ratio between these two quantities is controlled by the Tikhonov parameter $\tau$, which puts more or less weight on the relative-entropy as its value increases or decreases respectively.
+
+The algorithm described in this paper was created for the purpose of fusion neutron spectra unfolding, as after a comprehensive review of literature, it was decided that the existing neutron spectrum unfolding methods cannot be generalized to the problem of fusion neutron measurement, which has a higher degree of under-determination, and where the possible neutron spectra differs a lot more from each other (such that the \apriori may be very far from the true spectrum).
+
+This is particularly useful for fusion neutron spectrum unfolding, where there are not many experimental data available, thus no reasonable parametrisation or other sophisticated method of simplifying the neutron spectrum can be used.
+
+Therefore the mathematical derivation in creating the regularization algorithm in this paper was done with as little loss of generality as possible, such that it can be applied onto any particle spectrum unfolding problem. As long as the reaction rates, response matrix, and \apriori is known, this algorithm is applicable.
+
+\begin{equation} \label{regularization text equation}
+loss(\ve{\phi}_{sol}) = (\chi^2)_{\text{reaction rates}}(\ve{\phi}_{sol}) + \tau \cdot RelativeEntropy_{\phi_0} (\ve{\phi}_{sol})
+\end{equation}
+
+where\\
+$\ve{\phi}_0$ is the \apriori spectrum,\\
+$\ve{\phi}_{sol}$ is the algorithm's output spectrum,\\
+$Loss(\ve{\phi}_{sol})$ is the loss value, i.e. the value outputted by the loss function.
+
+Due to the underdetermination condition of the unfolding problem, there exist multiple (i.e. infinitely many) solutions which will minimize $\chi^2$ (potentially down to zero). If one wishes to find a unique solution among these multiple solutions, we can apply a condition requiring it to deviate minimally from the \apriori spectrum.
+\subsection{Motivation}\label{motivation}
+    While some programs of particle spectra unfolding via regularization exist, not all are rigorously derived and none allows the user to easily select a regularization constant. Take MAXED for example, which is the most widely used regularization unfolding method\cite{UnfoldingSuiteReview}. It chooses $\tau$ by forcing $(\chi^2) = \text{number of degree of freedoms}$ \cite{M.Reginatto-et-al2002-MAXED}. This form of ``regularization" leads to no insight about how far off is the \apriori spectra, and therefore the user won't be able to know if the spectrum is accurate or not.
+
+    Additionally, the mathematical basis is flawed: In MAXED's derivation, it does not respect its own assumption that the solution distributions is a probability distribution by allowing it to be not normalized, i.e. $\sum\limits_i{\phi_i}\neq1$; and it also applied the relative-entropy definition backwards: the apriori distribution $\ve{\phi}_0$ should become the first term in the bracket of relative entropy, i.e. $D_{KL}(\ve{\phi}_0||\ve{\phi}_{sol})$, but instead the relative-entropy was erroneously defined as $D_{KL}(\ve{\phi}_{sol}||\ve{\phi}_0)$. Since the two terms in the brackets are not commutable, applying the second definition will give an incorrect result.
+
+    These minor errors are perhaps tolerable in the era of fission neutron spectrum unfolding, where the solution space is small; but as we apply the technique of neutron spectrum unfolding on fusion neutron spectra, which has a much wider range of possible solutions, these minor errors in the algorithms used may unknowingly lead to erroneous solutions.
+
+    To correct for this, the following algorithm was derived in a more rigorous manner, and has the flexibility to allow users to choose the appropriate regularization constant $\tau$. It also does not rely on any pre-existing numerical solvers to obtain a solution (i.e. no bin-hopping or simulated annealing). A single minimum loss value in equation \ref{regularization text equation} is guaranteed, without the chance of being trapped at sub-optimal stationary points.
+    
+\subsection{Loss function}\label{justification}
+    The loss function chosen for this algorithm is stated in equation \ref{regularization text equation}.
+    To measure the deviation of the solution's would-have-been reaction rate ($\ve{Z}'$) from the measured reaction rate($\ve{Z}_0$), $\chi^2 = \sum\limits_k (\frac{Z_k' -Z_{0k}}{\sigma_k})^2$ was used.
+    This is a widely used metric for measuring the deviation between pairs of numbers, and is generally accepted as the standard metric used to measure the deviation between reaction rates in neutron spectra unfolding \cite{MatzkeUnfoldingProcedure}\cite{Linden1995_Article_Maximum-entropyDataAnalysis}.
+    % \cite{cvachovec2008maximum} and \cite{maeda2013new} has the insight of using the likelihood function to replace $(\chi^2)$ is reasonable, especially when the count rate is low, such that the Poisson distributions of the reaction rates can no longer be approximated as a normal distributions.
+
+    Perhaps a more interesting question is why should we use relative-entropy as the regularizing function in the loss function.
+
+    The regularizing function, in the context of neutron spectrum unfolding, refers to the function used to compute the ``deviation" of one spectrum from another (from the solution spectrum to the \apriori spectrum).
+
+    When choosing a regularizing function, it is desirable to have the following features:
+\begin{enumerate}
+    \item Can naturally obey the physical requirement of no-negative-flux without applying additional external constraint onto the set of equations;
+    \item For the same amount of absolute deviation $\Delta \phi$, harsher penalty should be given to bin with lower \apriori flux.
+        
+        Penalty contributed by the $i^{th}$ bin's deviation $>$ penalty contributed by the $j^{th}$ bin's deviation if the solution deviates by the same amount, i.e. $|\phi_{sol,i}-\phi_{0,i}|=\Delta\phi=|\phi_{sol,j}-\phi_{0,j}|$, but the $\phi_{0,i}<\phi_{0,j}$
+\end{enumerate}
+
+    To satisfy both of these requirements,
+    \begin{enumerate}
+        \item The gradient of the loss function must approach $-\infty$ as the flux approaches $0^+$ from the positive side, \label{infinite gradient requirement}
+        \item The magnitude of the 2$^{nd}$ order derivative of the loss function $\frac{\partial^2 (\text{loss})}{\partial \phi_{sol,i}^2}$ must increase with decreasing \apriori value $\phi_{0,i}$ \label{log scale requirement}
+        % \footnote{If the reader disagree with requirement \ref{log scale requirement} but still would like a method that fulfill requirement \ref{infinite gradient requirement}, then s/he can use a regularizing function with two Tikhonov parameters: Regularizing function $= \tau_1 (\chi^2)_{\phi, \phi_0} + \tau_2 S(\phi)$; where $S(\phi)$ is the self-entropy of the probability distribution of the solution spectrum $\phi$, and $(\chi^2)_{\phi, \phi_0}$ is the usual definition of $\chi^2$ (sum of square of weighted deviations of flux in each bin, between the solution spectrum and the \apriori spectrum.)}
+    \end{enumerate}
+
+    Other regularing functions considered before settling on the decision of using relative-entropy includes:
+    \begin{itemize}
+        \item Fractional deviation (obeys requirement \ref{log scale requirement} but not \ref{infinite gradient requirement})
+        \item Mean squared deviation in log-space
+        \item Absolute deviation in log-space
+        \item Determinant of the Fisher Information Matrix \footnote{Fisher information of a variable vector (which the neutron spectrum is) should form a MATRIX, not a scalar, unlike the papers \cite{FisherRegularisation}\cite{FirstResultsOfMFRJETNE213} mentioned.}
+    \end{itemize}
+
+    In the end, relative-entropy was chosen as it satisifes both of the requirements above, with the additional benefit of being the only unique and non-self-contradictory metric that can be used to measure deviation between probability distributions (See Appendix A in \cite{MAXED1998Reginatto}). Therefore it is chosen as the metric to be used in the regularizing function in this paper.
+    % Alternatively, some other papers \cite{besida2005hybrid} uses, simply, the least square method. % This paper is so shit that I don't even want to acknowledge it. Like, ew, why would you use least square as the metric.
+
+    Serendipiteously, the loss function, when composed in this manner, has no local trapping suboptimal points (See appendix \ref{Global minimum}), allowing to use of Lagrangian multipliers to find the point of minimum, which is detailed in section \ref{Algorithm}.
+
+    There are other implementations of the regularization method in ways that does not require an \textit{a priori}. Take minimum (self-)entropy for example, which is the algorithm used by \cite{cvachovec2008maximum} and \cite{maeda2013new}. This is only a special implementation of the principle of MaxEnt (Maximum (relative-)Entropy), where a na\"{i}ve \apriori is assumed, i.e. it is equivalent to using a flat \apriori in MAXED.
+
+    % It is also worth noting that the commonly used neutron spectrum unfolding code GRAVEL obeys both requirements, even though it is not program that uses a regularization code. It takes steps in the log-flux space (thus fulfilling requirement \ref{infinite gradient requirement})in order to minimize the $\chi^2$ of the reaction rates; and the starting point in the log-flux space is the \apriori(thus fulfilling requirement \ref{log scale requirement}).
+\subsection{Definition of relative-entropy}
+    Before proceeding any further, it is useful to know what relative-entropy is. It is also known as Kullback-Leibler divergence ($D_{KL}$); and has been misnamed as cross-entropy($H$) in some papers\cite{MAXED1998Reginatto} (See equation \ref{relative-entropy and cross-entropy} for details). Both measures the deviation of one normalized probability distribution from another. These probability distribution can be continuous or discrete.
+
+    For example, let there be two discrete probability distributions Q and P , over x:
+
+    \begin{align}
+    H(P,Q)    &=  - \sum_x P(x) log(Q(x))   \\
+    S(P)      &=  - \sum_x P(x) log(P(x))   \\
+    D_{KL}(P||Q) &= \sum_x P(x)log(\frac{P(x)}{Q(x)}) \label{relative-entropy definition}\\
+    D_{KL}(P||Q) &= H(P,Q)-S(P) \label{relative-entropy and cross-entropy}
+    \end{align}
+
+    where $S(P)$ is the (self-)entropy of the distribution.
+    (Intuitively, when analogized to drawing balls from a bag, $S(P)$ is how ``surprising" the resulting ball's colour is on average.)
+    When $P$ is fixed (as is the \apriori), then $S(P)$ is a constant, so $D_{KL}(P||Q)$ and $H(P,Q)$ only differ by a fixed, constant value for any P.
+    
+    Note the non-commutativity of $D_{KL}(P||Q)$: if the role of P and Q in equation \ref{relative-entropy definition} were reversed, a different answer will be obtained; but it will still give a loss function landscape that only has one global minimum.
+
+    % Another metric that one can consider is the symmetric version of Kullback-Leibler divergence, known as the Jensen-Shannon divergence, where the $D = 0.5 D_KL(P||Q) + 0.5 D_KL(Q||P)$. This gives a commutable measure of deviation, as opposed to relative-entropy/ cross-entropy, which are both non-commutable. This can be further generalized into the quantity called $\lambda$-divergence, where the two $0.5$'s are replaced with $\lambda$ and $1-\lambda$ respectively, increasing or decreasing the value of $\lambda$, swapping the roles of the solution spectrum with that of the \apriori spectrum when calculating this entropy divergence.
+
+    % The normalization condition ($\sum\limits_i (\text{flux})_i =1$ stated in equation \ref{normalization condition} later) ensures that, \emph{ceteris paribus}, decrease in flux in one bin will lead to increase in flux in another. Due to the asymmetric nature of the flux, the decrease in flux in the former bin will lead to a much faster gain in relative-entropy than the deminishment of relative-entropy due to the increment in the latter bin. 
+
+    The choice of the base of the $log$ in the equations above is arbitrary. (In the ball-drawing analogy this number is equal to the number of colours available.) In the context of information theory and computer science this is usually chosen as 2, and given the unit ``shannons"; but for physics application, and for the rest of this text, it will be chosen as base e, and given the unit ``nats", where 1 shannon = 0.693 nats.
+
+    In a typical model selection problem, one would use the data/ground truth as distribution $P$, and postulate several different \apriori models (AKA hypothetical models) as $Q$, and choose one of the \apriori $Q$ which has the smallest $D_{KL}(P||Q)$ as the best fit model, as that $Q$ is considered to be the model that loses the least amount of information when it is used to approximate the ground truth $P$. \cite{BurnhamKennethP2002Msam}.
+
+    In an underdetermined unfolding problem, the ground truth is never known. Instead, in the regularizing part of the loss-function, an \apriori $\ve{\phi}_0$ will be provided by the user of the unfolding program; but the solutions. Therefore we should replace the ``ground truth" with the user-provided \apriori, and use the program's potential output solution $\ve{\phi}_{sol}$ in the place of the hypothetical models. This should, in theory, lead to the expression $D_{KL}(\ve{\phi}_0||\ve{\phi}_{sol})$.
+
+    The act of minimizing $D_{KL}$ in the expression above is equivalent to minimizing the information lost when replacing the user-defined \apriori with the solution distribution outputted by the program.
+
+    % We should put the \apriori at the back because that is the closest thing to a ground truth that we have. If you think that it may deviate too much from the data and cause trouble... well, that's what the regularization constant is for. If it is in deed deviating too much from the \apriori, then the algorithm will automatically balances it out by setting = 0.
+
+    Another advantage of using the user-defined \apriori as the ``ground truth" is that the algorithm will still function properly even if the user-defined \apriori contain one or more bins where the flux $\to 0^+$. This is because the $D_{KL}(\ve{\phi}_0||\ve{\phi}_{sol})$ function (and its gradient) remains defined even if the user-defined \apriori has one or more bins $\to 0^+$; but the same cannot be said for $D_{KL}(\ve{\phi}_{sol}||\ve{\phi}_0)$
+    % This is because $lim\limits_{\phi_0 \to 0^+} D_{KL}(\phi_0||\phi_{sol}) = 1$
+\section{Assumption and notations}
+    To keep the derivation simple, we assume that all count rates are high enough that their Poisson distributions can be approximated using Gaussian distributions. We will also ignore the systematic error, i.e. assume that the error on the cross-sections of various nuclei is zero.
+
+    The propagation of error due to systematic error (i.e. error associated with the \matr{R} matrix) can be accounted for at a later stage by the user of Monte Carlo wrapper function around the algorithm; or can be extended using the result of \ref{Accounting for systematic error} and \ref{Error propagation}
+\subsection{Notations}\label{Notations}
+    % To turn the into measurable number of nuclides, a response matrix is used 
+    % $R_{ki}$ refers to the probability of a nuclide of type $k$ being created upon the incidence of a neutron with energy within energy bin $i$.
+    In previous texts, the neutron flux is usually represented with $\ve{\phi}$, and the reaction rates with $Z$. In this text, however, the neutron flux needs to be normalized to obtain a probability distribution instead. The probability distribution of a neutron being in the $i^{th}$ bin will be indicated with $\ve{f}$,
+    \begin{equation}
+        \sum_i f_i =1
+    \end{equation}
+    in line with the notations used in \cite{MAXED1998Reginatto} derivation. 
+
+    Note that these definitions are made with the context of activation foil neutron spectrum unfolding in mind, where some neutrons ($\ve{\phi}$) are incident on the foils, producing some number of nuclides ($\ve{N}$) according to a predetermined response matrix $\matr{R}\ve{\phi}$ as a result. But it is possible to generalize it to other applications, i.e. it is equally valid to replace ``Total \# of nuclide k created" with ``total number of pulse with height=k recorded" when using recoil/scintillation detectors; and replace "neutron spectrum" with ``neutron and $\gamma$ spectrum" for detector sensitive to both, operating in a mixed field environment.
+    % To make the following derivation easier, we assume that the measurements of ``\# of nuclide $k$ created per incident neutron" $N_k$ are mutually independent, forming a vector $\ve{N}$ of with a covariance matrix which is purely diagonal,
+% \begin{align}
+% \uuline{\bf{S_N}}=
+% \begin{pmatrix}
+%     \sigma_1 &  &  &  & \\
+% 	 & \ddots &  &  & \\
+%     &  & \sigma_k &  & \\
+%      &  &  & \ddots & \\
+%      &  &  &  & \sigma_m\\
+% \end{pmatrix}
+% \end{align}
+
+    Below are some of the notations which will be used:
+    \begin{table}[H]
+    \begin{tabular}{rl}
+    number of reactions =& $m$\\
+    & so that daughter nuclide $k$ has a range $1\le k\le m$\\
+    number of energy groups =& $i$\\
+    & so that the $i^{th}$ or $j^{th}$ energy group $1\le i,j\le n$\\
+    \emph{A priori} probability distribution \\of neutron spectrum = & $\ve{f^{DEF}}$ \\
+    \\
+    probability distribution \\
+    of neutron spectrum = & $\ve{f}$ (vectors are written in bold italics)\\
+    \\
+    Total \# of nuclides created\\
+    according to experimental data =& $\ve{N}$ \\
+    \\
+    Total \# of nuclides created as\\
+    predicted by the solution =& $\ve{N}'$\\
+    \\
+    Neutron yield =& $Y$\\
+    \\
+    Response matrix =& \matr{R} \\
+    And the k-th row of the response\\
+    matrix will be written as \\
+    a vector =& $\ve{R}_k$ \\
+    \\
+    element of a matrix is indicated with \\
+    a pair of subscript indices, e.g. =& $R_{ki}$\\
+    \\
+    element of a vector is indicated with \\
+    a subscript index, e.g. =& $f_{i}$\\
+    \\
+    Iteration of a variable is\\
+    indicated with superscript, e.g. =& $\ve{v}^g$\\
+    \\
+    Non-linear operation on a vector\\
+    is equivalent to element-wise\\
+    operation on the vector, e.g. :& $\left(\frac{1}{\ve{f}}\right)_i = \frac{1}{f_i}$\\
+    \\
+    The element-wise multiplication\\
+    is denoted by the hollow dot:   &$\circ$
+    \end{tabular}
+    \end{table}
+    $R_{ki}$ denotes how much will the $i^{th}$ bin's flux contribute to the $k^{th}$ reaction rate. Therefore the dot product between $\ve{R}_k$ and {f} gives the reaction rate per incident neutron,
+        
+    \begin{align}
+        \ve{R}_k \cdot \ve{f} = \frac{N_k'}{Y}\\
+    \intertext{Or, equivalently,}
+        \ve{N} = Y \matr{R} \ve{f}\label{Folding equation}
+    \end{align}
+    
+
+    % The definitions of some more specific terms will be made clear further down the derivation.
+    % See equation \ref{M definition}, \ref{c definition}, and \ref{Jacobian definition} for the definition of $\ve{c}, \matr{M}$, and $\matr{J}$.%, and will be documented in the Glossary.
+
+\section{Algorithm}\label{Algorithm}
+Using the constraints
+\begin{align*}
+    N_k' = Y\sum_{i}R_{ki} f_i\\
+    \sum_i f_i \equiv ||\ve{f}||_1 = 1
+\end{align*}
+We aim to minimize the following loss value:
+\begin{align*}
+    \text{loss} &= \chi^2(\ve{f}) + reg(\ve{f}) 
+    + \frac{\gamma}{2} (\matr{R}- \matr{R}_0)\cdot\covarR(\matr{R} - \matr{R}_0)
+    \\
+    \chi^2(\ve{f}) &= \frac{1}{2} (\ve{N}'-\ve{N})\cdot\covarN(\ve{N}'-\ve{N})\\
+    reg(\ve{f}) &= \tau \ve{f}^{DEF}\cdot(\ve{ln\:f}^{DEF}-\ve{ln\:f})
+\end{align*}
+$\covarN$ denotes the inverse of the covariance matrix for the measured reaction rates $\ve{N}$; if the covariance matrix is purely diagonal, i.e. no correlation between different measurements, then $\covarN$ becomes the familiar form $S^{-1}_{ii}=\frac{1}{\sigma_i^2}$.
+The term with $\gamma$ accounts for any possible deviation in the response matrix, where gamma controls the importance of regularizing the deviation of \matr{R} from $\matr{R}_0$ For section \ref{iterative stage}, we will fix $\matr{R}$ at $\matr{R}_0$, and $\gamma=0$.
+
+Using the method of Lagrangian mulitpliers to minimize this loss value under the stated constraints leads to the Lagrangian expression
+\begin{align*}
+    \mathcal{L}\left(\ve{f},\mu\right) = \frac{1}{2}(Y\matr{R}\ve{f}-\ve{N})\cdot\covarN(Y\matr{R}\ve{f}-\ve{N})-\tau\ve{f}^{DEF}\cdot\ve{ln\:f} +\mu(||\ve{f}||_1 -1)
+\end{align*}
+
+At the $g^{th}$ iteration, the value of best fit neutron yield $Y$ that minimizes the loss value is straightforwardly found as
+\begin{align}
+    Y^g = \frac{\ve{N}\cdot\covarN(\matr{R}\ve{f}^g)}{(\matr{R}\ve{f}^g)\cdot\covarN(\matr{R}\ve{f}^g)}
+\end{align}
+without any circular dependence, assuming $\ve{f}^g$ is known.
+
+However, the same cannot be said for $\ve{f}$:
+\begin{empheq}[left=\empheqlbrace]{align}
+    Y(\matr{R}\ve{f})\cdot\covarN Y \matr{R} - \ve{N}\covarN Y \matr{R} -\tau \ve{f}^{DEF}\circ\frac{1}{\ve{f}} = -\mu \label{condensed equation}\\
+    ||\ve{f}||_1=1 \label{normalization condition}
+\end{empheq}
+Where line \ref{condensed equation} consists of $n$ equations, one for each component of $f$.
+
+To get the value for $\mu$, one can multiply $f_i$ onto the $1<i^{th}<n$ equation, then sum up all $n$ equations. Apply the condition \ref{normalization condition} on the RHS and $||\ve{f}^{DEF}||_1=1$ on the LHS gives 
+\begin{equation}
+    \mu^g = \tau - (Y^g \matr{R}\ve{f}^g-\ve{N})\cdot\covarN (Y^g \matr{R} \ve{f}^g) \label{sum to get mu} \\
+\end{equation}
+
+Applying equation \ref{sum to get mu} on \ref{condensed equation} gives statement resembling the following
+\begin{align*}
+    \ve{\nabla}\chi^2 (\ve{f}) +\ve{\nabla}reg (\ve{f}) = \ve{0}
+\end{align*}
+where $reg(\ve{f})$ stands for the regularization function $=$ RelativeEntropy$(\ve{f})$
+
+At the $g^{th}$ iteration, the equation above may not hold true, i.e.
+\begin{align*}
+    \ve{\epsilon}^g = \ve{\nabla}\chi^2 (\ve{f}^g) +\ve{\nabla}reg (\ve{f}^g)
+\end{align*}
+Where $\ve{\epsilon}^g$ is a vector represents ``residual steepness".
+\subsection{Methods to iteratively approach solution $\ve{f}$}\label{iterative stage}
+At this stage, apart from heedlessly taking steps downhill towards the point of lowest loss value, there are two ways to find the solution:
+\subsubsection{Finding the optimal point using the linear approximation of the loss function gradient in the vicinity of the solution}\label{inverse iterative}
+To ensure convergence in the fewest iteration, we can adjust $\ve{f}^g$ to a new position $\ve{f}^{g+1}$ such that its new gradient is expected to cancels out $\ve{\epsilon}^g$.
+\begin{align*}
+    \ve{\nabla}\chi^2(\ve{f}^{g+1}) - \ve{\nabla}\chi^2(\ve{f}^g) + \ve{\nabla}reg(\ve{f}^{g+1})-\ve{\nabla}reg(\ve{f}^{g}) + \ve{\epsilon}^g = \ve{0}
+\end{align*}
+To make the equation solvable, simplification must be made. In the following equation we have done so by Taylor expanding the gradient of the regularization function to its $1^{st}$ order.
+
+Using $\ve{1}$ to represent a vectors of all `1's, and using $\Lambda(\ve{f})$ to represent an $n\times n$ diagonal matrix whose main diagonal is populated with vector $\ve{f}$, and $(\frac{\ve{f}^{DEF}}{\ve{f}^g})_i = \frac{f^{DEF}_i}{f^g_i}$, we have
+\begin{align}
+    \left[Y^g\RSR Y^g+\tau\Lambda\left(\frac{\ve{f}^{DEF}}{\ve{f}^g}\circ\frac{1}{\ve{f}^g}\right)\right] d\ve{f}^g = \tau\frac{\ve{f}^{DEF}}{\ve{f}^g} - \mu^g\ve{1} - Y^g \matr{R}\covarN (Y^g\matr{R}\ve{f}^g-\ve{N})
+\end{align}
+Multiplying by the inverse of the matrix inside the [ ] gives $d\ve{f}^g$. Where $\tau\Lambda\left(\frac{\ve{f}^{DEF}}{\ve{f}^g}\circ\frac{1}{\ve{f}^g}\right)_{ij} = \tau \delta_{ij}\frac{f^{DEF}_i}{(f^g_i)^2}$ is a diagonal matrix. Without this diagonal, the matrix on the left inside the square brackets will be singular when \matr{R} is underdetermined, and cannot be inverted normally.
+
+The drawback of a linear-approximation algorithm such as this one is that it will overshoot; and sometimes it may overshoot into the negative flux region. To avoid this unphysical result, an underrelaxation constant should be applied:
+\begin{align}
+    x^g = |min(\frac{df^g_i}{f^g_i})\:\forall\:df^g_i<0|\\
+    w^g = min( \frac{\alpha}{x^g} , 1)
+\end{align}
+where x is a scalar denoting largest absolute fractional error among all negative fractional errors.
+\begin{align*}
+    \ve{f}^{g+1}= \ve{f}^g + w^g d\ve{f}^g
+\end{align*}
+
+The larger $\alpha$ is, the faster the algorithm will converge. However the higher order terms ($O$) in $\frac{f_i}{f_i+df_i} = 1- \frac{df^g_i}{f^g_i}+O\left(\frac{df^g_i}{f^g_i}\right)$ will start to dominate when $\alpha$ is allowed to approach 1. Therefore to keep the absolute value of the residuals less than the $1^{st}$ order approximation itself, i.e. $\frac{\left|O\left(\frac{df^g_i}{f^g_i}\right)\right|}{\left|\left(\frac{df^g_i}{f^g_i}\right)\right|}<1$, an $\alpha<0.5$ was chosen.
+
+% This (section \ref{simple iterative}) was the approach used in the final algorithm as of 2020-01-10 14:07:31; section \ref{simple iterative}'s approach was not used.
+
+\subsubsection{Finding the optimal point in the regularization function to counteract the current loss function gradient}\label{simple iterative}
+An alternative method, not requiring Taylor expansion, is to use cancel out the ``residual steepness" by accounting for only the change induced by the the regularization function:
+\begin{align}
+    \bigg(\ve{\nabla} reg(\ve{f}^g + d\ve{f}^g) - \ve{\nabla} reg(\ve{f}^g)\bigg) + \ve{\epsilon}^g = \ve{0}
+\end{align}
+Since $[\ve{\nabla}reg(\ve{f})]_i$ is only dependent on $f_i$, we can find the exact value of $\ve{\nabla}reg^{-1}$ easily even though it is a non-linear function; and we do so without applying matrix inversion operations, making it a much less resource-intensive and scalable algorithm.
+
+\begin{align}
+    f^g_i + df^g_i = \frac{\tau f^{DEF}_i}{\left((Y^g \matr{R}\ve{f}^g-\ve{N})\cdot\covarN (Y^g \matr{R})\right)_i + \mu^g}\label{direct iteration equation}
+\end{align}
+
+The appropriate step size that minimizes is given as $w^g$
+\begin{align*}
+    \ve{f}^{g+1}&= \ve{f}^g + w^g d\ve{f}^g
+\end{align*}
+where $w^g$ can be found by setting $\frac {d \text{loss}(\ve{f}+w^g d\ve{f})}{d w^g}=0$, simplifying by assuming $Y^{g+1}=Y^g$ has no $w^g$ dependence, and Taylor expanding when necessary, to obtain
+\begin{align*}
+    w^g &= \frac{
+    - \sum\limits_i \tff \dff -2(Y^g\matr{R}\ve{f}^g- \ve{N})\cdot \covarN \matr{R} d\ve{f}^g
+    }{
+    -2\sum\limits_i \tff \dff^2 + 4 (Y^g)^2 d\ve{f}\cdot \RSR d\ve{f}^g
+    }
+\end{align*}
+
+\subsection{Accounting for systematic error}\label{Accounting for systematic error}
+    In order to account for the uncertainty in the response matrix due to the ambiguity of the cross-sections, we can append an extra term into the loss function, such that Lagrangian expression becomes
+    \begin{align*}
+    \mathcal{L}(\matr{R}, \ve{f}, Y, \mu) =  \frac{\gamma}{2}(\matr{R}-\matr{R}_0)\cdot\covarR(\matr{R}-\matr{R}_0)&+\frac{1}{2}(Y\matr{R}\ve{f} - \ve{N})\cdot\covarN(Y\matr{R}\ve{f} - \ve{N})
+    \\&+ \tau \ve{f}^{DEF}\cdot\ve{ln\:f}+\mu||\ve{f}||_1
+    \end{align*}
+where $\covarR$ is a rank 4 tensor, and is the tensor inverse of the covariance tensor of \matr{R}. It should only be populated along the ``diagonal", i.e. $ (S_R^{-1})_{k,i,k',j}=\delta_{k,k'} (S_R^{-1})_{k,i,k',j}$ where $\delta$ is the Kronecka delta.
+
+This simply adds an extra step into the iterative calculations, which is expressed as follows in Einstein notation 
+\begin{align}
+    \left(\gamma \covarR + (Y\ve{f})\tens\covarN\tens(Y\ve{f}) \right)\matr{R} = \gamma\covarR\matr{R}_0 + \ve{N}\cdot \covarN \tens (Y\ve{f})
+\end{align}
+Multiplying both side by the inverse of the tensor in the bracket on the left leaves only \matr{R}, allowing $\matr{R}^{(g+1)}$ to be computed.
+\subsection{Error propagation}\label{Error propagation}
+    The covariance ($\matr{S_f}$) on the solution vector($\ve{f}$) of a loss-function minimization problem, such as this one, is simply the inverse of the Hessian matrix of the loss function:
+    \begin{align*}
+        \matr{S_f}=& \matr{H}^{-1}\\
+    H_{ij} =& \frac{\partial^2 (\text{loss})}{\partial f_i \partial f_j}
+        = -\tau \delta_{ij}\frac{f^{DEF}_i}{f_i^2} + \left(Y(\ve{R^T})_i+ \frac{\partial Y}{\partial f_i} \matr{R}\ve{f} \right)\cdot\covarN\left(Y(\ve{R^T})_j+ \frac{\partial Y}{\partial f_j} \matr{R}\ve{f} \right)\\
+    \intertext{where}
+        \frac{\partial Y}{\partial f_i} &= \frac{\left[\ve{N}\covarN\ve{R} \right]_i} {(\matr{R}\ve{f})\cdot\covarN(\matr{R}\ve{f})} - \frac{ 2 \left(\ve{N}\cdot\covarN(\matr{R}\ve{f})\right) \left[(\matr{R}\ve{f})\cdot\covarN\matr{R}\right]_i} {\left((\matr{R}\ve{f})\cdot\covarN(\matr{R}\ve{f})\right)^2}
+    \end{align*}
+
+Alternatively, if one is concerned about the total flux $\phi$ instead:
+\begin{align}
+    H_{ij}=\frac{\partial^2 \text{loss}}{\partial \phi_i \partial \phi_j}= \delta_{ij} \frac{f^{DEF}_i}{Y^2} \frac{\tau}{f_i^2} + (S_{\phi}^{-1})_{ij}
+\end{align}
+where $\ve{\phi} = Y\ve{f}$ and $\matr{S_\phi}^{-1} = \matr{R}\cdot\covarN\matr{R}$
+
+When \matr{R} is also allowed to vary, the Hessian matrix extends from having $n\times n$ dimension to having $(n+m\times n)\times(n+m\times n)$ dimension. The extra elements in the Hessian is written as follows:
+\begin{align}
+    \frac{\partial^2 \text{loss}}{\partial R_{ki} \partial f_j} &= \\
+    \frac{\partial^2 \text{loss}}{\partial R_{ki} \partial R_{k'j}} &= 
+\end{align}
+
+$\uparrow$ Those equations will be filled in later.
+
+The inverse of the Hessian matrix will then return the covariance.
+\section{Usage}
+Note to self:
+\begin{itemize}
+    \item L-curve
+    \item If the \apriori coincides with the true spectrum, then there will be exactly zero drift as the $\tau$ increase.
+    \item The level of drift increases wrt. deviation of the $\tau$.
+    \item can observe using the L-curve.
+    \item we should not stop at $\chi^2 =1$
+\end{itemize}
+\section{Benchmarking/Verification}
+
+\section{Using multiple a priori/assigning covariance onto a priori}
+
+\clearpage
+\bibliographystyle{plain}
+\bibliography{RegularizationFull}
+
+\begin{appendices}
+\section{Uniqueness of global minimum}\label{Global minimum}
+\end{appendices}
+\end{document}
+% Add glossary
+%`

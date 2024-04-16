@@ -1,0 +1,787 @@
+%`
+%\nonstopmode
+\hbadness=100000
+\documentclass[a4paper, 12pt]{article}
+\usepackage{amsmath,amsfonts,caption,float,geometry,graphicx,mathtools,pythonhighlight,textcomp,url,verbatim,subcaption,tabularx, longtable, ulem, relsize, empheq, hyperref} %,parskip
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\geometry{a4paper, total={160mm,247mm}, left=25mm, top=25mm}
+\newcommand{\matr}[1]{\uuline{\bf{#1}}}
+\newcommand{\ve}[1]{\boldsymbol{#1}}
+\newcommand{\n}[0]{\ve{\hat{n}}}
+\newcommand{\apriori}[0]{\textit{a priori} }
+\newcommand{\pythoncode}[2]{
+\begin{adjustwidth}{-1.3cm}{-1.3cm}
+\texttt{#1}
+\inputpython{#2}{1}{1500}
+\end{adjustwidth}
+}
+\usepackage[toc, page]{appendix}
+% \usepackage[dvipsnames]{xcolor}
+% \definecolor{subr}{rgb}{0.8, 0.33, 0.0}
+% \definecolor{func}{rgb}{0.76, 0.6, 0.42}
+
+\begin{document}
+% \includegraphics[width=8cm]{CoverPage/UoBlogo.pdf}
+% \hrule
+% \bigbreak
+% \textbf{F}usion Neutron \textbf{Acti}vation Spectra \textbf{U}nfolding by \textbf{N}eural \textbf{N}etworks \\
+% (FACTIUNN)                                      \\
+% \hrule
+% \bigbreak
+% \begin{minipage}[b]{0.4\textwidth}
+%     \includegraphics[height=2cm]{CoverPage/CCFElogo.jpeg}
+%   \end{minipage}
+%   \hfill
+%   \begin{minipage}[b]{0.4\textwidth}
+%     \includegraphics[height=3cm]{CoverPage/UKAEAlogo.jpeg}
+% \end{minipage}
+    
+\begin{table}[!h]
+\centering
+\begin{tabular}{rl}
+author:&Ocean Wong          \\
+       &(Hoi Yeung Wong)    \\
+supervisor:&Chantal Nobs, Robin Smith    \\
+organization:& Culham Centre for Fusion Energy\\
+date:  &October 2019 \\
+\end{tabular}
+\end{table}
+\hrule
+\bigbreak
+
+\abstract
+In this document, the method of particle spectrum unfolding using Tikhonov Regularization is presented. Kullback-Leibler divergence was chosen as the regularizing function. The results has been implemented as a class within the neutron spectrum unfolding suite.
+
+The same framework of minimizing the loss function, linearization of loss function gradient landscape, and proving the uniqueness (or non-uniqueness) of the global minimum, can be re-used by other researches who wishes to create a different regularization program based on another (or multiple others) metric(s).
+
+  % \hline
+  % \twocolumn
+\chapter{A general neutron spectrum unfolding algorithm by regularization using relative-entropy}
+\section{Background}
+  regularization algorithm uses a metric, which is a linear mixture of $(\chi^2)_{reaction rates}$ and the deviation of the solution spectrum from the \apriori spectrum. The mixing ratio between these two quantities is controlled by the Tikhonov parameter $\tau$, which more or less weight on the relative-entropy.
+
+This method of particle spectra unfolding is applicable to any general unfolding problem, as nothing except the reaction rates, response matrix, and \apriori is known. This is particularly useful for fusion neutron spectrum unfolding, where there are not many experimental data available, thus no reasonable parametrisation or other sophisticated method of simplifying the neutron spectrum can be used.
+
+\begin{equation} \label{regularization text equation}
+loss(\phi_{sol}) = (\chi^2)_{\text{reaction rates}}(\phi_{sol}) + \tau \cdot RelativeEntropy_{\phi_0} (\phi_{sol})
+\end{equation}
+
+where\\
+    $\phi_0$ is the \apriori spectrum,\\
+    $\phi_{sol}$ is the algorithm's output spectrum,\\
+    $Loss(\phi_{sol})$ is the value outputted by the loss function, sometimes called the loss function
+
+    Due to the underdetermination condition of the unfolding problem, there exist multiple (i.e. infinitely many) solutions which will minimize $\chi^2$ (potentially down to zero). By also requiring it to deviate minimally from the \apriori spectrum, a unique solution to the problem can be found instead.
+\subsection{Motivation}\label{sub:motivation}
+    While some programs of particle spectra unfolding via regularization exist, it is not rigorously derived and do not allow the user to specify a regularization constant. MAXED in particular, forces $(\chi^2) = \text{number of degree of freedoms}$ \cite{M.Reginatto-et-al2002-MAXED}. This form of ``regularization" leads to no insight to the user of how far off is the \apriori spectra, and therefore if the spectrum is accurate or not.
+    It also does not guarantee that the solution is unique, since multiple (infinitely many) solutions with $\chi^2 = 1$ can be found\footnote{MAXED deals with this problem of infintely-many-possible-solutions by opening up an extra degree of freedom, removing the $\sum \phi_i = 1$ constraint, seeking to minimize the deviation of this sum $\sum \phi_i$from 1 instead. But, as the author of this paper, I disagree with that approach, as it invalidates the premise of having $f_i$ as a ``normalized probability distribution".}; while for this program, only finitely many (only one) of such minima will be found. (See Appendix \ref{Global minimum})
+    By carrying out the following derivation, which does not rely on any pre-existing numerical solvers to obtain a solution (i.e. no bin-hopping or simulated annealing), a minimum loss value in equation \ref{regularization text equation} is guaranteed, without the chance of being trapped at sub-optimal stationary points. A program is created using the result of this derivation.
+    % From that, many insights, such as how the solution spectrum (and its relative-entropy and $\chi^2$) varies with tau.
+    % as well as with respect to the number of iterations.
+    
+\section{Justification of loss function (relative-entropy + $(\chi^2)$) chosen}\label{justification}
+    $\chi^2$ was used to quantify the deviation of the unfolded solution neutron spectrum's would-have-been reaction rate from the measured reaction rates.
+    This is a widely used metric for measuring the deviation between pairs of numbers that are otherwise uncorrelated, and is generally accepted as the standard metric used to measure the deviation between reaction rates \cite{MatzkeUnfoldingProcedure}\cite{Linden1995_Article_Maximum-entropyDataAnalysis}.
+    % \cite{cvachovec2008maximum} and \cite{maeda2013new} has the insight of using the likelihood function to replace $(\chi^2)$ is reasonable, especially when the count rate is low, such that the Poisson distributions of the reaction rates can no longer be approximated as a normal distributions.
+
+    Perhaps a more interesting question is why should we use relative-entropy as the regularizing function in the loss function.
+
+    The regularizing function, in the context of neutron spectrum unfolding, refers to the function used to compute the ``deviation" of one spectrum from another (from the solution spectrum to the \apriori spectrum).
+
+    When choosing a regularizing function, it is desirable to have the following features:
+\begin{enumerate}
+    \item Can naturally obey the physical requirement of having no negative flux without applying additional external constraint onto the set of equations;
+    \item For the same amount of absolute deviation $\Delta \phi$, harsher penalty should be given to bin with lower \apriori flux.
+        Penalty contributed by the i-th bin> penalty contributed by the $j^{th}$ bin if $|\phi_{sol,i}-\phi_{0,i}|=\Delta\phi=|\phi_{sol,j}-\phi_{0,j}|$
+\end{enumerate}
+
+    To satisfy both of these requirements,
+    \begin{enumerate}
+        \item The gradient of the loss function must approach $-\infty$ as the flux approaches 0, \label{infinite gradient requirement}
+        \item The magnitude of the 2$^{nd}$ order derivative of the loss function $\frac{\partial^2 (\text{loss})}{\partial \phi_{sol,i}^2}$ must increase with decreasing \apriori value $\phi_{0,i}$ \label{log scale requirement}
+        \footnote{If the reader disagree with requirement \ref{log scale requirement} but still would like a method that fulfill requirement \ref{infinite gradient requirement}, then s/he can use a regularizing function with two Tikhonov parameters: Regularizing function $= \tau_1 (\chi^2)_{\phi, \phi_0} + \tau_2 S(\phi)$; where $S(\phi)$ is the self-entropy of the probability distribution of the solution spectrum $\phi$, and $(\chi^2)_{\phi, \phi_0}$ is the usual definition of $\chi^2$ (sum of square of weighted deviations of flux in each bin, between the solution spectrum and the \apriori spectrum.)}
+    \end{enumerate}
+
+    Other metrics considered before writing this document includes:
+    \begin{itemize}
+        \item Fractional deviation (obeys requirement \ref{log scale requirement} but not \ref{infinite gradient requirement})
+        \item Mean squared deviation in log-space
+        \item Absolute deviation in log-space
+        \item Determinant of the Fisher Information Matrix \footnote{Fisher information of a variable vector (which the neutron spectrum is) should form a MATRIX, not a scalar, unlike the papers \cite{FisherRegularisation}\cite{FirstResultsOfMFRJETNE213} mentioned.}
+    \end{itemize}
+
+    Relative entropy satisifes both of the requirements above, with the additional benefit of being the only unique and non-self-contradictory metric that can be used to measure deviation between probability distributions (See Appendix A in \cite{MAXED1998Reginatto}). Therefore it is chosen as the metric to be used in the regularizing function in this paper.
+    % Alternatively, some other papers \cite{besida2005hybrid} uses, simply, the least square method. % This paper is so shit that I don't even want to acknowledge it. Like, ew, why would you use least square as the metric.
+
+    Serendipiteously, the loss function, when composed in this manner, has no local trapping suboptimal points (See appendix \ref{Global minimum}), allowing to use of Lagrangian multipliers to find the point of minimum minimization, which is detailed in section \ref{Derivation}.
+
+    There are other implementations of the regularization method in ways that does not require an \textit{a priori}. Take minimum (self-)entropy for example, which is the algorithm used by \cite{cvachovec2008maximum} and \cite{maeda2013new}. This is only a special implementation of the principle of MaxEnt (Maximum (relative-)Entropy), where a na\"{i}ve \apriori is assumed, i.e. it is equivalent to using a flat \apriori in MAXED.
+
+    It is also worth noting that the commonly used neutron spectrum unfolding code GRAVEL obeys both requirements, even though it is not program that uses a regularization code. It takes steps in the log-flux space (thus fulfilling requirement \ref{infinte gradient requirement})in order to minimize the $\chi^2$ of the reaction rates; and the starting point in the log-flux space is the \apriori(thus fulfilling requirement \ref{log scale requirement}).
+
+\subsection{Definition of relative-entropy}
+    Before proceeding any further, it is useful to know what relative-entropy is. It is also known as Kullback-Leibler divergence ($D_{KL}$); and has been misnamed as cross-entropy($H$) in some papers\cite{MAXED1998Reginatto} (See equation \ref{relative-entropy and cross-entropy} for details). Both measures the deviation of one normalized probability distribution from another. These probability distribution can be continuous or discrete.
+
+    For example, let there be two discrete probability distributions Q and P , over x:
+
+    \begin{align}
+    H(P,Q)    &=  - \sum_x P(x) log(Q(x))   \\
+    S(P)      &=  - \sum_x P(x) log(P(x))   \\
+    D_{KL}(P||Q) &= \sum_x P(x)log(\frac{P(x)}{Q(x)}) \label{relative-entropy definition}\\
+    D_{KL}(P||Q) &= H(P,Q)-S(P) \label{relative-entropy and cross-entropy}
+    \end{align}
+
+    where $S(P)$ is the (self-)entropy of the distribution.
+    (Intuitively, when analogized to drawing balls from a bag, $S(P)$ is how ``surprising" the resulting ball's colour is on average.)
+    When $P$ is fixed (as is the \apriori), then $S(P)$ is a constant, so $D_{KL}(P||Q)$ and $H(P,Q)$ only differ by a fixed, constant value for any P.
+    
+    Note the non-commutativity of $D_{KL}(P||Q)$: if the role of P and Q in equation \ref{relative-entropy definition} were reversed, a different answer will be obtained; but it will still give a loss function landscape that only has one global minimum.
+
+    % Another metric that one can consider is the symmetric version of Kullback-Leibler divergence, known as the Jensen-Shannon divergence, where the $D = 0.5 D_KL(P||Q) + 0.5 D_KL(Q||P)$. This gives a commutable measure of deviation, as opposed to relative-entropy/ cross-entropy, which are both non-commutable. This can be further generalized into the quantity called $\lambda$-divergence, where the two $0.5$'s are replaced with $\lambda$ and $1-\lambda$ respectively, increasing or decreasing the value of $\lambda$, swapping the roles of the solution spectrum with that of the \apriori spectrum when calculating this entropy divergence.
+
+    % The normalization condition ($\sum\limits_i (\text{flux})_i =1$ stated in equation \ref{normalization condition} later) ensures that, \emph{ceteris paribus}, decrease in flux in one bin will lead to increase in flux in another. Due to the asymmetric nature of the flux, the decrease in flux in the former bin will lead to a much faster gain in relative-entropy than the deminishment of relative-entropy due to the increment in the latter bin. 
+
+    The choice of the base of the $log$ in the equations above is arbitrary. (In the ball-drawing analogy this number is equal to the number of colours available.) In the context of information theory and computer science this is usually chosen as 2, and given the unit ``shannons"; but for physics application, and for the rest of this text, it will be chosen as base e, and given the unit ``nats", where 1 shannon = 0.693 nats.
+\section{Assumption}
+Let's assume that we have a response matrix \matr{R} where each element is known to sufficiently high precision. $R_{ki}$ refers to the probability of a nuclide of type $k$ being created upon the incidence of a neutron with energy within energy bin $i$.
+\subsection{Notations}\label{Notations}
+    In previous texts, the neutron flux is usually represented with $\ve{\phi}$, and the reaction rates with $Z$. In this text, however, the neutron flux needs to be normalized to obtain a probability distribution instead. The probability distribution of neutron will be indicated with $\ve{f}$,
+    \begin{equation}
+        \sum_i f_i =1
+    \end{equation}
+    in line with the notations used in \cite{MAXED1998Reginatto} derivation. Additionally, the reaction rate will not be use; instead the following quantity $\ve{N}$
+    \begin{align}
+    N_k &= \text{\# of nuclide $k$ created per incident neutron}\\
+        &= \frac{\text{total \# of nuclide $k$ created}}{\text{total n. yield}} = \frac{\text{reaction rate }k}{\text{n. per second}} = \frac{Z_k}{\text{n. per second}}
+        \label{NeutronYield}
+    \end{align}
+    will be use (contrary to previous texts which may use $N$ as the symbol or no. of nuclides in total).
+
+    To make the following derivation easier, we assume that the measurements of ``\# of nuclide $k$ created per incident neutron" $N_k$ are mutually independent, forming a vector $\ve{N}$ of with a covariance matrix which is purely diagonal,
+\begin{align}
+\uuline{\bf{S_N}}=
+\begin{pmatrix}
+    \sigma_1 &  &  &  & \\
+	 & \ddots &  &  & \\
+    &  & \sigma_k &  & \\
+     &  &  & \ddots & \\
+     &  &  &  & \sigma_m\\
+\end{pmatrix}
+\end{align}
+    However, if one wishes to account for the covariances between different measured $N_k$, they can repeat the following derivation with $(\chi^2) = (\ve{N'}-\ve{N}) \cdot \matr{S_N}(\ve{N'}-\ve{N})$ instead of $(\chi^2) = \sum\limits_k (\frac{N_k '-N_k}{\sigma_k})^2$. One of the possible reasons to do so is to account for the covariance in uncertainty between $N_k$ due to uncertainty of the total n. yield, which is the common denominator to all of these reaction rates. Even if $Z_k$  \{$\forall$ $1\le k\le m$\} are all obtained via independent measurements, they need to be divided by the same neutron yield as shown in equation \ref{NeutronYield}, introducing a large component of positive covariance between them.
+
+    Below are some of the notations which will be used:
+    \begin{table}[H]
+    \begin{tabular}{rl}
+    number of reactions =& $m$\\
+    & so that daughter nuclide $k$ has a range $1\le k\le m$\\
+    number of energy groups =& $i$\\
+    & so that the $i^{th}$ or $j^{th}$ energy group $1\le i,j\le n$\\
+    \emph{A priori} probability distribution \\of neutron spectrum = & $\ve{f^{DEF}}$ \\
+    \\
+    probability distribution \\of neutron spectrum = & $\ve{f}$ (vectors are written in bold italics)\\
+    \\
+    Measured \# of nuclide created\\
+    per incident neutron =& $\ve{N}$ (without prime ($'$))\\
+    \\
+    Response matrix =& \matr{R}\\
+    \\
+    element of a matrix is indicated with \\
+    a pair of subscript indices, e.g. =& $R_{ij}$\\
+    \\
+    element of a vector is indicated with \\
+    a subscript index, e.g. =& $f_{i}$\\
+    \\
+    Iteration of a vector/matrix is\\
+    indicated with superscript, e.g. =& $\ve{v}^g$
+    \end{tabular}
+    \end{table}
+    The definitions of some more specific terms will be made clear further down the derivation. See equation \ref{M definition}, \ref{c definition}, and \ref{Jacobian definition} for the definition of $\ve{c}, \matr{M}$, and $\matr{J}$.%, and will be documented in the Glossary.
+
+\section{Derivation} \label{Derivation}
+\subsection{Formulation (Lagrangian Multiplier)} \label{Lagrangian multipliers}
+For a fixed value of $\tau$ the following m+1 constraints has to be followed:
+\begin{align}
+N_k' &=  \sum_i^n R_{ki} f_i &\text{for }1\le k\le m \\
+\sum_i f_i &= 1 \label{Normalization constraint}
+\end{align}
+where $N_k'$ is the hypothetical number of nuclide $k$ generated per incident neutron given the hypothetical neutron spectrum spectrum $\ve{f}$.
+
+And the following quantities has to be minimized:
+\begin{align}
+    \tau(D_{KL}(\ve{f},\ve{f^{DEF}})) = \tau \sum_i f_i ln(\frac{f_i}{f_i^{DEF}})
+    \\
+    \chi^2(\ve{N'},\ve{N}) = \sum_k (\frac{N_k' -N_k}{\sigma_k})^2
+\end{align}
+Note that $D_{KL}$ is always positive when constraint \ref{Normalization constraint} is obeyed; and reaches a minimum when $\ve{f}=\ve{f^{DEF}}$.
+
+Thus the Lagrangian can be constructed as
+\begin{multline}
+    \mathlarger{\mathcal{L}}(\ve{f}, \ve{\lambda}, \ve{N'}, \mu) = 
+        \\
+        \tau \sum_i f_i ln(\frac{f_i}{f_i^{DEF}}) + \sum_k (\frac{N_k' -N_k}{\sigma_k})^2
+        +\sum_k \lambda_k [N_k'-\sum_i^n R_{ki} f_i ] + \mu [\sum_i f_i -1]
+    \label{Lagrangian}
+\end{multline}
+where $\ve{\lambda}$ is a list of Lagrangian multipliers $\lambda_k$, $1\le k\le m$; and $\mu$ is a Lagrangian multiplier.
+
+To obtain the minimum loss value where $loss = \chi^2 +\tau(D_{KL})$,
+\begin{equation}
+    \nabla \mathlarger{\mathcal{L}} =0
+\end{equation}
+i.e.
+\begin{empheq}[left=\empheqlbrace]{align}
+    \frac{\partial\mathcal{L}}{\partial f_i}&    = 0 & \text{for } 1\le i\le n
+\\
+    \frac{\partial\mathcal{L}}{\partial N_k'}&   = 0 & \text{for } 1\le k\le m
+\\
+    \frac{\partial\mathcal{L}}{\partial \lambda_k}&  = 0 & \text{for } 1\le k\le m
+\\
+    \frac{\partial\mathcal{L}}{\partial \mu}&    = 0
+\end{empheq}
+
+This leads to the following n+2m+1 simultaneous equations:
+\begin{empheq}[left=\empheqlbrace]{align}
+    \tau[ln(\frac{f_i}{f_i^{DEF}})+1] + \mu +\sum_k^m \lambda_k R_{ki} &    = 0 & \text{for } 1\le i\le n
+\\
+    2\frac{N_k' -N_k}{\sigma_k^2} - \lambda_k &   = 0 & \text{for } 1\le k\le m
+\\
+    \sum_j^n R_{kj}f_{j}& = N_k' & \text{for } 1\le k\le m
+\\
+    \sum_i f_i &= 1
+\end{empheq}
+
+Substituting the $3^{rd}$ line into the $2^{nd}$ line removes $N_k'$ from this set of equations entirely; then substituting the $2^{nd}$ line into the $1^{st}$ removes the n Lagrangian multipliers $\lambda_k$ from this set of equations entirely, leaving only a set of equations dependent on the variables $f_i$ ($1\le i\le n$) and $\mu$, as well as n+1 linearly-independent equations.
+
+\begin{empheq}[left=\empheqlbrace]{align}
+\tau[ln(\frac{f_i}{f_i^{DEF}} +1)] + \mu + \sum_k^m \left[2 \frac{R_{ki}}{\sigma_k^2}\left( (\sum_j^n R_{kj}f_j)-N_k\right)\right] &=0 
+\\
+\sum_j^n f_j &= 1 
+\end{empheq}
+
+Rearrange the top line (note: each $i$ represent 1 equation, $1\le i\le n$, so the top line entails $n$ equations), such that all linear terms of $f_i$ and $\mu$ stays on the LHS, while the constants and non-linear terms in $f_i$ moves to the RHS.
+
+\begin{align}
+&\sum_k^m \left[2 \frac{R_{ki}}{\sigma_k^2} (\sum_j^n R_{kj}f_j)\right] - \sum_k^m (2\frac{N_k R_{ki}}{\sigma_k^2}) & +\mu &
+                            =-\tau[ln(\frac{f_i}{f_i^{DEF}}) +1] & 
+\\
+&\sum_k^m \left[2 \frac{R_{ki}}{\sigma_k^2} (\sum_j^n R_{kj}f_j)\right] & +\mu &
+                            =-\tau[ln(\frac{f_i}{f_i^{DEF}}) +1] & +\sum_k^m (2\frac{N_k R_{ki}}{\sigma_k^2})
+\end{align}
+Transposing the order of summation in the first term yields
+\begin{equation}
+    \sum_k^m 2\frac{R_{ki}}{\sigma_k^2} \sum_j^n(R_{kj}f_j) = \sum_k^m\sum_j^n[(2\frac{R_{ki}R_{kj}}{\sigma_k^2})f_j]
+    = \sum_j^n[(2\sum_k^m(\frac{R_{ki}R_{kj}}{\sigma_k^2}))f_j]
+\end{equation}
+Now if we construct matrix \matr{A} such that for ${1\le i,j\le n}$
+\begin{align}
+    A_{ij} = 2\sum_k^m (\frac{R_{ki}R_{kj}}{\sigma_k^2}) & 
+\end{align}
+And further rearranging so only the constants are on the RHS, then the set of simultaneous equations can be expressed as:
+\begin{empheq}[left=\empheqlbrace]{align}
+\sum_j^n A_{ij} f_j + \tau ln(f_i) + \mu &= \tau[ln(f_i^{DEF})-1] + 2 \sum_k^m (\frac{N_k R_{ki}}{\sigma_k^2}) \label{ln on left}
+\\
+\sum_j^n f_j &= 1 \label{normalization condition}
+\end{empheq}
+
+\subsection{How not to solve it}\label{dead-ends}
+% At this stage it is very tempting to eliminate the Lagrangian multiplier $\mu$ from the set of equations as it does not correspond to any phyically meaningful quantities. However, the equations becomes much more ``untidy" upon this elimination. Therefore it is not advised.
+
+One may attempt to decouple the dependence of the $i^{th}$ term from itself in equations \ref{ln on left},
+perhaps by moving all terms dependent on $f_i$ in the $i^{th}$ equation to the LHS,
+and all terms dependent on $f_{j\neq i}$ to the RHS,
+so that each line can be expressed as $F_{i/LHS}(f_i) = F_{i/RHS} (\ve{f_{j\neq i}}, constants)$,
+i.e. equating the result of non-linear function $F_{i/LHS}(f_i)$ to a the result of a (linear) function dependent on $f_j$. 
+
+This seems promising at first, until one tries to solve for $f_1$, and realising that s/he still knows nothing about the values on the RHS as $f_j$ (for j=2,...,n) are unknown. $f_2$ is a function of $f_j'$ where $j'=1,3,4,...,n$, etc. To evaluate $f_2$ will lead to circular reference towards $f_1$, leading to infinite recursion.
+
+It is also tempting to give up at this stage and allow a generic minimization algorithm (e.g. L-BFGS) to find the solution of these equations. However, due to the logarithmic term present, most algorithm will inevitably overshoot into the $f_i<0$ region when exploring the solution space, leading to failure.
+
+\subsection{Linearization} \label{linearization}
+Instead, a much more elegant technique is stated as follows.
+
+In general, in a set of fully-determined simultaneous equations, the variables required can be stacked into a column vector $\ve{v}$, and the constant terms can be moved to the RHS to be stacked into a column vector $\ve{c}$. Assuming that only linear operations on $\ve{v}$ is present in the system, then these simultaneous equations can be expressed in linear algebra notations as $\matr{M}\ve{v}=\ve{c}$, where \matr{M} is a non-singular square matrix, so $\ve{v}= \matr{M}^{-1}\ve{c}$.
+
+% The purpose of doing the inversion operation on \matr{M} to obtain $\matr{M}^{-1}$ is such that we can find out the vector $\ve{v}$ which satisfy the equation $\matr{M}\ve{v}=\ve{c}$. However, if \matr{M} is dependent on $\ve{v}$ itself, then the problem becomes more complicated.
+
+For the regularization problem described by equation \ref{ln on left} and \ref{normalization condition}, the set of simultaneous equations is fully determined, but not expressible as a linear operator \matr{M} operating on a vector, as it involves the non-linear operator $ln$.
+
+One way of getting around this is via Taylor expansion. By incorperating the first term of the Taylor expansion into the LHS of equation \ref{ln on left} and ignoring all higher order terms, an approximate solution can be obtained.
+
+This process can be repeatedly applied onto the result obtained to iteratively improve the accuracy of this approximation until it is much higher than the precision of the floating point.
+
+To more succinctly express the set of equations above (\ref{ln on left} and \ref{normalization condition}), we will relabel them into a matrix multiplication equation, $\matr{M}\ve{v}=\ve{c}$.
+
+The most obvious next step is to turn the LHS of \ref{ln on left} and \ref{normalization condition} $\matr{M}\ve{v}$ where \matr{M} has size (n+1)$\times$(n+1), variable vector $\ve{v}$ has length (n+1), and the RHS into a constant vector $\ve{c}$ has length (n+1). However, we an alternative, which is to eliminates the variable $\mu$ from the set of equation by subtracting the $(i+1)^{th}$ line from the $i^{th}$ line. Note that $\mu$ has no immediately obvious physical meaning (it represents the steepness of the function in the direction normal to the constraint hyperplane), so it is not of interest to us. Then the set of n simultaneous equations in (\ref{ln on left}) can be reduced to the following $n-1$ equations, where $1\le i\le n-1$:
+\begin{align}
+\sum_j^n& [A_{ij} - A_{(i+1)j}] f_j + \tau [ln(f_i)-ln(f_{i+1})] &=& \tau[ln(f_i^{DEF})-ln(f_{i+1}^{DEF})] + 2 \sum_k^m [\frac{N_k (R_{ki}-R_{k(i+1)})}{\sigma_k^2}] \label{ln on left double diag}
+\end{align}
+Such that equation \ref{normalization condition} and \ref{ln on left double diag} together forms n simultaneous equations in n variables, i.e. a fully determined system.
+
+In attempt to condense them further into vector and matrix representations, we can use the following notations:
+\begin{align}
+M_{ij} =&
+\begin{cases}
+A_{ij}-A_{(i+1)j}          & \text{ for } 1\le i \le n-1, 1\le j\le n \\
+1   & \text{ for   } i=n, 1\le j\le n
+\end{cases}
+\label{M definition}
+\\
+c_i = &
+\begin{cases}
+\tau [ln(f_i^{DEF})-ln(f_{i+1}^{DEF})] + 2\sum\limits_k^m(\frac{N_k (R_{ki}-R_{k(i+1)})}{\sigma_k^2})          & \text{ for   } 1\le i\le n \\
+1   & \text{ for   } i=n
+\end{cases}
+\label{c definition}
+\end{align}
+such that 
+
+\begin{empheq}[left=\empheqlbrace]{align}
+\sum_j^{n} M_{ij}f_j& + \tau [ln(f_i)-ln(f_{i+1})] & - c_i = 0 &&\text{for}&& 1\le i\le n-1 \label{Fi 1in-1 form}
+\\
+\sum_j^{n} M_{ij}f_j&                & - c_i = 0 &&\text{for}&& i=n \label{Fi n form}
+\end{empheq}
+
+Express the $i^{th}$ line of LHS of equations \ref{Fi 1in-1 form} and \ref{Fi n form} as a function $F_i$.
+Define $\ve{u}$ to be the test solution vector, while the $\ve{v}$ is the correct solution vector, such that 
+    
+\begin{equation}
+    F_i(\ve{u})=0 \label{simultaneous equation equals zero component}
+\end{equation}
+which can be written in vector form 
+\begin{equation}
+    \ve{F}(\ve{u}) = \ve{0}\label{simultaneous equation equals zero condition}
+\end{equation}
+if $\ve{u}$=solution$\equiv \ve{v}$.
+
+For convenience the vector $\ve{\Delta}$ is defined:
+\begin{align}
+    \ve{\Delta}
+    % \stackrel{\text{\tiny def}}{=}
+    % \coloneqq
+    \equiv
+    (\ve{v} - \ve{u})
+    \label{Delta definition}
+\end{align}
+
+When searching for the solution, the true value of $\ve{v}$ is not known; but guess values of $\ve{u}$ can be used.
+
+Consider the taylor expansion of $ln(v_i)$ at $ln(u_i)$,
+
+\begin{align}
+    ln(v_i) &= ln(u_i) + \frac{v_i - u_i}{u_i} - O(u_i, \Delta_i) \\
+\tau ln(v_i)&= \frac{\tau}{u_i}v_i - \tau(-ln(u_i) + 1 + O(u_i, \Delta_i))
+\\
+\intertext{where the higher order terms $O(u_i, \Delta_i)$ }
+    - O(u_i,\Delta_i) &= - \frac{1}{2} \left(\frac{\Delta_i}{u_i}\right)^2 + \frac{1}{3} \left(\frac{\Delta_i}{u_i}\right)^3 - \frac{1}{4} \left(\frac{\Delta_i}{u_i}\right)^4 + \frac{1}{5} \left(\frac{\Delta_i}{u_i}\right)^5
+    \\
+    &= - \sum_{l=2}^{\infty} \frac{1}{l} \left(\frac{\Delta_i}{u_i}\right)^l
+\end{align}
+
+Therefore Taylor expanding the logarithms in \ref{Fi 1in-1 form} gives:
+\begin{multline}
+    \sum_j^n M_{ij}v_j + \frac{\tau}{u_i}v_i - \frac{\tau}{u_{i+1}}v_{i+1}\\
+    = c_i - \tau [ln(u_i)-ln(u_{i+1})] + \tau [O(u_i,\Delta_i) - O(u_{i+1}, \Delta_{i+1})]
+    \label{step 1 linearization}
+\end{multline}
+
+expressing the equation \ref{step 1 linearization} in terms of $\ve{\Delta}$ and $\ve{u}$ only,
+\begin{multline}
+    \sum_j^n M_{ij}\Delta_j + \frac{\tau}{u_i}\Delta_i - \frac{\tau}{u_{i+1}}\Delta_{i+1}
+    + \sum_j^n M_{ij} u_j + \tau [\frac{u_i}{u_i} - \frac{u_{i+1}}{u_{i+1}}]
+    \\
+    = c_i - \tau [ln(u_i)-ln(u_{i+1})] + \tau [O(u_i,\Delta_i) - O(u_{i+1}, \Delta_{i+1})]
+    \label{step 2 linearization}
+\end{multline}
+Manipulate equation \ref{step 2 linearization}, leaving only terms linearly dependent on $\ve{\Delta}$ on the left,
+\begin{multline}
+    \sum_j^n M_{ij}\Delta_j + \frac{\tau}{u_i}\Delta_i - \frac{\tau}{u_{i+1}}\Delta_{i+1}
+    \\
+    = c_i - \sum_j^n M_{ij} u_j - \tau [ln(u_i)-ln(u_{i+1})] + \tau [O(u_i,\Delta_i) - O(u_{i+1}, \Delta_{i+1})]
+    \label{double diag expanded u-v separated}
+\end{multline}
+
+Meanwhile, the n${}^{th}$ line of the system of simultaneous equations (equation \ref{Fi n form}) gives
+\begin{align}
+    \sum_j^n M_{ij} u_j - c_i &= 0 \\
+    \sum_j^n M_{ij} v_j - c_i &= 0 \\
+    \sum_j^n M_{ij} \delta_j  &= 0
+\end{align}
+where $i=n$. Note $M_{nj} = 1$ $\forall 1\le j\le n$ and $c_n =1$ as defined in \ref{M definition} and \ref{c definition}; so all of the $M_{ij}$ and $c_i$ in the three equations above are unity.
+\subsection{Convergence condition and underrelaxation}
+% Need to prove that minima are attractive; maxima are repulsive.
+
+Rewrite equation \ref{Delta definition} as
+\begin{align}
+    \ve{v} = \ve{u} + \ve{\Delta}
+    \label{v u Delta}
+\end{align}
+Where $\ve{\Delta}$ is the deviation of $\ve{u}$ from the true root $\ve{v}$ in the domain space.
+It is difficult to accurately calculate $\ve{\Delta}$. However, if we take the approximation of it up to the first order as shown in equation \ref{step 1 linearization} to \ref{double diag expanded u-v separated}, and call it $\ve{\delta}$, we can rewrite equation \ref{v u Delta} as 
+\begin{align}
+    \ve{f}^g &= \ve{f}^{g-1} + \alpha \ve{\delta}^{g-1}
+    \label{first underrelaxation factor equation}
+\end{align}
+    for the g$^{th}$ iteration, where $\ve{\delta}^{g-1}$ is the vector proportional to the difference between the solution vector (i.e. solution flux) at the (g-1)-th and g-th iterations.
+
+Note that we have introduced an underrelaxation factor $0< \alpha \le 1$ to slow down the convergence as that is necessary to ensure numerical stability. This is explained in appendix \ref{underrelaxation factor}.
+
+Ignoring the higher order terms, equation \ref{double diag expanded u-v separated} becomes:
+\begin{align}
+    \sum_j^n M_{ij}\delta^{g-1}_j + \frac{\tau}{u_i}\delta^{g-1}_i - \frac{\tau}{u_{i+1}}\delta^{g-1}_{i+1}
+    &= c_i - \sum_j^n M_{ij} f^{g-1}_j - \tau [ln(f^{g-1}_i)-ln(f^{g-1}_{i+1})]
+    \label{double diag expanded fgfg-1}
+    % + \tau [O(u_i,\Delta_i) - O(u_{i+1}, \Delta_{i+1})]
+\end{align}
+for $1 \le i\le n-1$,
+and equation \ref{Fi n form} becomes
+\begin{align}
+    \sum_j^n f^g_i &= 1 \\
+    \sum_j^n \delta^{g-1}_i &=1- \sum_i^n f^{g-1}_i \label{delta equals f-1}\\
+                            &= 0 \label{delta keeps f normalized}
+\end{align}
+for i = n, assuming $\ve{f}^{g-1}$ is normalized.
+
+A collorary of the definition \ref{first underrelaxation factor equation} above is that at each iteration $g$, $\ve{f}^g$ will always deviation from the correct solution $\ve{v}$ as follows:
+% \begin{equation}
+%     \ve{f}^{g} = \ve{f}^{g-1} + \alpha \ve{\delta}^{g-1} \\
+%     % \ve{v} &= \ve{f}^{g-1} + \ve{\delta}^{g-1} %+ \ve{O}^{g-1}
+% \end{equation}
+
+Recalling that the LHS of equations \ref{Fi 1in-1 form} and \ref{Fi n form} can be written as function $F_i$, and then vectorized into $\ve{F}(\ve{v}) = \ve{0}$ as seen in equation \ref{simultaneous equation equals zero condition},
+\begin{equation}
+    \ve{F}(\ve{f}^{g}) = \ve{F}(\ve{f}^{g-1}+\alpha \ve{\delta}^{g-1}) = \ve{O}^{g-1}
+\end{equation}
+where the deviation from the origin in codomain space $\ve{O}^{g-1}$ is
+\begin{align}
+    (\ve{O}^{g-1})_i &=
+\begin{cases}
+        \sum\limits_i^n M_{ij}(f^{g-1}_j + \alpha \delta^{g-1}_j)+\tau[ln(f^{g-1}_i + \alpha\delta^{g-1}_i)-ln(f^{g-1}_{i+1} + \alpha\delta^{g-1}_{i+1})] -c_i
+        &\text{for } 1\le i\le n-1
+        \\
+        \sum\limits_i^n M_{ij}(f^{g-1}_j + \alpha \delta^{g-1}_j)-c_i &\text{for } i=n
+\end{cases}
+\end{align}
+
+Thus, for the answer to converge, we will require:
+\begin{enumerate}
+    \item $f^g_i$ to stay in the physically allowed bounds at the end, i.e. $0\le f^g_i\le1$ as $g\to\infty$ \label{domain bounded condition}
+    \item $\ve{O}^g$ to be bounded, \label{codomain bounded condition}
+    \item $\ve{O}^g$ to decrease with every iteration, converging to zero, \label{convergence condition}
+\end{enumerate}
+Condition \ref{convergence condition} is more difficult to define, since there are n different dimensions to consider, each dimension can converge towards zero at different rates and manner (oscillatorily or monotonically); and if we use its $p$-norm, we can choose
+
+$\lim\limits_{g\to\infty}||\ve{O}||_1 = \sum\limits_i(f_i)\to 0$,
+$\lim\limits_{g\to\infty}||\ve{O}||_2 = \sqrt{\sum\limits_i (f_i)^2}\to 0$,
+
+or any other positive values of $p$ $\lim\limits_{g\to\infty}||\ve{O}||_p \to 0$, as the measurement of ``convergence".
+
+In practice condition \ref{convergence condition} will not be implemented as $\ve{O}^g<\ve{O}^{g-1}$ is not guaranteed when $\ve{f}$ approaches the solution and becomes 
+
+Condition \ref{codomain bounded condition} is easier to impose:
+as long as $f^g_i>0$, $ln(f^g_i)$, and therefore, $\sum\limits_{l=2}^\infty\frac{1}{l}(\frac{\delta^{g-1}_i}{f^{g-1}_i})^l$, will not diverge to infinity, staying bounded. This can be achieved by ensuring that 
+    
+\begin{align}
+f^g_i = f^{g-1}_i + \alpha \delta^{g-1}_i >0 && \forall & 1\le i \le n \label{larger than zero condition}
+\end{align}
+
+Given that $\ve{f}_i^{DEF}$ and $\ve{f}^g_i$ are both positive, condition \ref{domain bounded condition} is obeyed naturally when the inequality \ref{larger than zero condition} is obeyed, due to the normalization constraint imposed by equation \ref{normalization condition}.
+
+% For the moment, only imposing condition \ref{codomain bounded condition} is sufficient to make sure that the algorithm converges.
+
+The details of how to impose inequality \ref{larger than zero condition} will be stated in appendix \ref{underrelaxation factor}. 
+
+When an appropriate choice of $\alpha$ has been made, the procedure of finding $\delta$ can be stated as follows: Starting from equation \ref{double diag expanded fgfg-1} and \ref{delta equals f-1}, 
+\begin{flushright}
+
+\begin{align}
+    \sum_j^n M_{ij}\delta^{g-1}_j& + \frac{\tau}{u_i}\delta^{g-1}_i - \frac{\tau}{u_{i+1}}\delta^{g-1}_{i+1}
+    &=& c_i - \sum_j^n M_{ij} f^{g-1}_j - \tau [ln(f^{g-1}_i)-ln(f^{g-1}_{i+1})]
+    \label{Jacobian long 1in-1}
+\intertext{for $1 \le i \le n-1$}
+    \sum_j^n \delta^{g-1}_j &&=& c_i - \sum_j^n M_{ij}f^{g-1}_j
+    \label{Jacobian long n}
+\end{align}
+for $i=n$ .
+\end{flushright}
+
+To express equations \ref{Jacobian long 1in-1} and \ref{Jacobian long n} in vector form, 
+
+\begin{align}
+    [\matr{M} + \tau \matr{\Lambda}^{g-1}] \ve{\delta}^{g-1} = \ve{c} - \matr{M}\ve{f}^{g-1} - \tau \matr{L}(\ve{f}^{g-1})
+    \label{Jacobian matrix verbose form}
+\end{align}
+where each of the symbol is defined as follows:
+
+$\matr{M}$ and $\ve{c}$ are as defined in equation \ref{M definition} and \ref{c definition},
+$\tau$ (the Tikhonov parameter) is a scalar,
+\begin{align}
+(\matr{L}(\ve{f}^{g-1}))_i &= 
+    \begin{cases}
+        ln(f^{g-1}_i) - ln(f^{g-1}_{i+1}) & \text{for } 1\le i \le n-1 \\
+        0       & \text{for } i=n
+    \end{cases}
+    \\
+(\matr{\Lambda}^{g-1})_{ij} &=
+    \begin{cases}
+        \frac{\delta^*_{ij}}{f^{g-1}_j} - \frac{\delta^*_{(i+1)j}}{f^{g-1}_j} & \text{for } 1 \le i \le n-1 \\
+        0 & \text{for } i=n
+    \end{cases}
+\end{align}
+where $\delta^*$ is the Kronecka delta; the ${}^*$ is used to prevent clashing symbol with the vector $\ve{\delta}^{g-1}$ previously used.
+
+The first $n-1$ rows of $\matr{\Lambda}^{g-1}$ forms a double diagonal matrix (populated only at the the main diagonal and the diagonal line immediately above it).
+\begin{align}
+\tau \matr{\Lambda}^{g-1}=
+\begin{pmatrix}
+    \frac{\tau}{f^{g-1}_1} & \frac{-\tau}{f^{g-1}_2} &  &  & & \\
+     & \ddots & \ddots &  & & \\
+     &  & \frac{\tau}{f^{g-1}_i} & \frac{-\tau}{f^{g-1}_{i+1}} & & \\
+     &  &  & \ddots & \ddots& \\
+     &  &  &  & \frac{\tau}{f^{g-1}_{n-1}}& \frac{-\tau}{f^{g-1}_n}\\
+   0 & \cdots & 0 & \cdots & 0 & 0 
+\end{pmatrix}
+\end{align}
+
+Note that $\matr{L}(\ve{f})$ is actually a non-linear operation on $\ve{f}$, but still outputs a vector. It can be similarly expressed as
+\begin{align}
+\tau \matr{L}=
+\begin{pmatrix}
+    \tau ln & -\tau ln &  &  & & \\
+     & \ddots & \ddots &  & & \\
+     &  & \tau ln & -\tau ln & & \\
+     &  &  & \ddots & \ddots& \\
+     &  &  &  & \tau ln& -\tau ln\\
+   0 & \cdots & 0 & \cdots & 0 & 0    
+\end{pmatrix}
+\end{align}
+
+The operator on the LHS of equation \ref{Jacobian matrix verbose form} is the \emph{Jacobian} matrix,
+\begin{align}
+    \matr{J}^{g-1} = \matr{M} + \tau\matr{\Lambda}^{g-1}
+    \label{Jacobian definition}
+\end{align}
+\subsubsection{Summary}
+From \ref{Jacobian matrix verbose form},
+\begin{equation}
+    \matr{J}^{g-1} \ve{\delta}^{g-1} = \ve{c} - \matr{M} \ve{f}^{g-1} - \tau\matr{L}(\ve{f}^{g-1})
+\end{equation}
+At each step, when $f^{g-1}$ is known, the RHS is evaluated,
+and then the inverse of the Jacobian is left-multiplied onto both sides to obtain $\ve{\delta}^{g-1}$
+\begin{equation}
+    \ve{\delta}^{g-1} = \left(\matr{J}^{g-1}\right)^{-1} [\ve{c} - \matr{M} \ve{f}^{g-1} - \tau\matr{L}(\ve{f}^{g-1})]
+\end{equation}
+And then, given the underrelaxation factor $\alpha$, the next iteration's $\ve{f}$ can be evaluated using equation \ref{first underrelaxation factor equation}
+\begin{align}
+    \ve{f}^g &= \ve{f}^{g-1} + \alpha \ve{\delta}^{g-1}
+\end{align}
+For the first iteration $g=1$, a very obvious choice of $\ve{f}^{g-1} = \ve{f}^{0}$ is the \apriori, i.e. $\ve{f}^0 = \ve{f}^{DEF}$.
+When $\ve{f}^g$ settles onto an equilibrium, a check $\ve{F}(\ve{f}^g)=\ve{0}\pm\text{tolerance}$ is performed. If it passes this check, then the program can terminate, returning this value as the output.
+
+\section{Benchmarking/Verification}
+\clearpage
+
+\section{Renormalization}
+A normalization factor $Y$ can be added into the derivation, scaling the list of calculated reaction rates up/down, minimizing the $\chi^2$ at the same time:
+
+\begin{align}
+    Y&=\text{n. yield} \\
+    Y N_k &= a_k
+\end{align}    
+where $\ve{a}$ is the list of total reaction rates measurements at t=0,
+so that now $\chi^2$ is defined as
+\begin{align}
+    \chi^2 &= \sum_k^m\frac{(Y N_k' - a_k)^2}{\sigma_k^2}\\
+    Y &= \argmin_{Y} (\chi^2) \label{argmin equation}
+\end{align}
+
+This means this regularization neutron spectrum unfolding method can simultaneously output an estimate of the n. yield.
+
+A similar procedure is carried out by MAXED at the start of each run; but this n. yield estimate is based on its comparison with the \apriori's reaction rates, no the final reaction rates. By imposing the constraint stated in equation \ref{argmin equation} at each iteration, a more accurate n. yield can be obtained.
+
+\section{Using multiple a priori}
+
+\section{Future direction for development}
+As briefly mentioned in section \ref{Notations}, the covariances between daughter nuclides resulting from the irradiation of the same foil, or from division by the n. yield diagnostics, can be accounted for by using a more sophisticated model.
+
+Additionally, the error from the reaction rates measurements (and potentially from the cross-section values as well) can be propagated, analytically (instead of using Monte Carlo methods), through the unfolding process to obtain a covariance matrix of the flux values.
+
+
+% \begin{figure}[H]
+% \centering
+% \includegraphics[width=1\textwidth]{path/to/file.png} %Stupid latex doesn't allow two dots in the filename.
+% \caption{Short description} \label{somethingcatchy}
+% \end{figure}
+
+\bibliographystyle{plain}
+\bibliography{RegularizationLinearization}
+
+\begin{appendices}
+\section{Choosing an underrelaxation factor}\label{underrelaxation factor}
+Consider equation \ref{double diag expanded u-v separated}, 
+after the linearization approximation and removing $O$ (higher order terms), the algorithm assumes that this is a simple linear algebra problem, i.e. the gradients in the landscapes stays constant everywhere. Therefore it takes a step as big as it think it needs to according to the gradient evaluated at $\ve{u}$ when there is no underrelaxation, i.e. $\alpha=1$.
+
+To fulfill Inequality \ref{larger than zero condition}, i.e. no flux values overshoots into the negative flux region, we can first define the vector \emph{intended fractional increase} as $\ve{w}$
+\begin{align}
+    w_i = \frac{\delta^{g-1}_i}{f^{g-1}_i}
+\end{align}
+
+Obviously, if the intended fractional increase for the $i^{th}$ element is less than -100\% or worse, then the resulting $f^g_i$ will definitely overshoot into the negative flux region if $\alpha$ is kept at 1.
+
+To moderate this, we can choose $0 <\alpha <1$ such that the worst fractional decrease is still less than -1, so $O(u_i,\Delta_i)$ doesn't diverge too much.
+% 
+% In python's list comprehension syntax, 
+% 
+% $x =  max([|w_i|$ for $w_i$ in $\ve{w}$ if $w_i<0])$
+% 
+% And in mathematical form,
+\begin{align}
+    x &= |min(\ve{w})|\\
+\alpha&= min(\frac{1}{2}\frac{1}{x}, 1) \label{alpha value}
+\end{align}
+The factor of $2$ in the denominator of equation \ref{alpha value} is chosen to minimize the amount of deviation due to the term $O(u_i, \Delta_i)$. A conservative algorithm will use a larger denominator (e.g. 100), sliding down the gradient smoothly and slowly, evaluating the gradient at every point along the way; while a greedy algorithm will use a smaller denominator (e.g. 1.255 \footnote{To ensure that the higher order terms in the Taylor expansion of ln() is still smaller than the first order term, $O(\frac{\delta}{x}) = |-ln(\frac{\delta}{x}+1)+1| < |\frac{\delta}{x}|$. Solving this inequality graphically gives $\frac{1}{|\frac{\delta}{x}|} >\frac{1}{0.7968} \approx 1.255$.}) and therefore larger steps, occasionally overshoot due to underestimation of the steepness of the loss-value landscape (due to the linearization assumption), taking an oscillatory path to the correct answer.
+
+Note that since $\ve{w}$, which should be written as $\ve{w}^{g-1}$ if one were to be scrupulous, is different across different iterations. So the maximum value that $\alpha$ (again, should be written as $\alpha^{g-1}$ if one were to be scrupulous) can take is also dependent on the iteration.
+% \begin{longtable}{ccc}
+%     1&2&3
+% \end{longtable}
+
+\section{Uniqueness of global minimum}\label{Global minimum}
+If one chooses the wrong loss function, it may lead to the existance of multiple local minima. Therefore it is important to show, under what condition will the loss function landscape have multiple local minima.
+% And it would be preferable if computing the number of possible local minima does not require a full search of the solution space
+
+The following procedure can be applied onto any loss function with a loss function gradient composed of one linear part and one non-linear part. For our loss function $Loss(\phi_{sol}) = (\chi^2)_{\text{reaction rates}}(\phi_{sol}) + \tau \cdot RelativeEntropy_{\phi_0} (\phi_{sol})$, $\chi^2$ is the linea part, relative-entropy is the non-linear part.
+
+The approach used in the following derivation is to think of the solution space $\ve{f}$ as the domain, the gradient on the loss function $\ve{G}=\nabla(loss)+ const.$ as the codomain. Note that $\nabla{loss}$ is a function of $\ve{f}$
+
+First, it will be beneficial to review some of the basic terminology used. Additionally, for convenient communication, I will create a term called ``hyperedge".
+\begin{table}[H]
+    \begin{tabular}{rlllll}
+    word & meaning & e.g. in 1D & 3D & in the current context\\
+    \hline
+    domain  &   input space & x      & $\ve{u}=(u_1,u_2,u_3)^T$ & $\ve{f}=(f_1,...f_n)^T$\\
+    codomain& output space & y=f(x) & $\ve{v}=\ve{F}(\ve{u})$& $\ve{G}=\nabla(loss)+ const.$\\
+    Jacobian $\matr{J}$&how much is the&  $\frac{dy}{dx}$ & $\matr{J}=\frac{\partial\ve{v}}{\partial\ve{u}}$;$J_{ij} = \frac{\partial v_i}{\partial u_j}$ & $J_{ij} = \frac{\partial G_i}{\partial f_j}$ \\
+            &domain ``stretched" to \\
+            &form the codomain \\
+    hyperplane & an n-1 dimensional object & a point & a plane &\\
+    hyperedge & an n-2 dimensional object & N/A & a line \\
+    simplex & object formed by n+1  & a line & a tetrahedron\\
+            & vertices
+    \end{tabular}
+\end{table}
+Additionally, the definition of some less-commonly seen matrix decomposition methods is provided below:
+    
+    SVD : singular-value-decomposition, equivalent of eigenvalue decomposition for a singular matrix.
+
+    Left-singular-vector: equivalent of a eigenvector for a singular matrix.
+
+\hrule
+
+In the following derivation, it is helpful to think of the domain and codomain as separate vector spaces.
+% so please get the picture of x-as-abscissa, y-as-ordinate graph out of your head. Getting such a picture in your head will only confuse you. Insted, we will only use
+Trying to plot $f_i$ against $G_i$ will only confuse the reader. Instead, we should think about the transformation from $\ve{f}$ into $\ve{G}$, where $\ve{f}$ and $\ve{G}$ are n-dimensional vector spaces. For n=2 \& 3, the transformation is trivial when it's still linear; and slightly more difficult to imagine when it's non-linear. If you are adventurous, you can try to imagine n=4.
+
+In section \ref{Lagrangian multipliers}, the procedure of using Lagrangian multipliers led to equation \ref{ln on left} and \ref{normalization condition}. It is not difficult to see that equation \ref{normalization condition} is a constraint that forces the solution to exist within a hyperplane in the domain space. However, perhaps it is more difficult to see that \ref{ln on left} is an equation that requires our solution to exist on a line $\ve{c}-\mu\n$ in the codomain space. This is because, if we express the LHS of \ref{ln on left} as $\ve{G}$ (which is a function of $\ve{f}$), and condense the RHS into a constant vector $\ve{c'}$, then we have
+
+\begin{equation}
+    G_i(\ve{f})+\mu=c'_i
+\end{equation}
+
+So that in codomain space, we have
+\begin{align}
+\ve{G}-\ve{c'} = -\mu\n,
+\intertext{where $\mu$ is an arbitrary real number, and }
+\n &= \begin{pmatrix}
+       1 \\
+       1 \\
+       \vdots \\
+       1
+     \end{pmatrix} \label{unnormalized 111 vector}
+\end{align}
+
+The hyperplane in the domain space defined by equation \ref{normalization condition} is mapped (in a non-linear manner, as dictated by the loss function's gradient) onto the codomain space, $\ve{f} \to \ve{G}$. The intersection points of it with the line $\ve{c'}-\mu\n$ are the solutions.
+
+\subsection{Linear transformation}\label{Linear transformation}
+Now, if the mapping from $\ve{f}\to\ve{G}$ is (almost) linear (i.e. the terms in the loss function with higher than $2^{nd}$ order dependence on $\ve{f}$ on are vanishingly small), then we can be sure that there will be:
+\begin{enumerate}
+    \item no solution if line ($\ve{c'}-\mu\n$) does not intersect the hyperplane in the codomain space \label{out of bounds}
+    \item 1 unique solution if the line penetrates the hyperplane at 1 point.
+    \item multiple (infinitely many) solutions if the line lies inside the hyperplane. \label{infinitely-many-solutions}
+\end{enumerate}
+
+If the the hyperplane in the codomain space is parallel to the line ($\ve{c'}-\mu\n$), then either situation \ref{infinitely-many-solutions} or situation \ref{out of bounds} may occur.
+But the occurance of situation \ref{out of bounds} does not guarantee that the hyperplane is parallel to the line ($\ve{c'}-\mu\n$).
+This is because the allowed range of solution is bounded in the domain space by $f_i>0$.
+(In 3D, this hyperplane can be visualized as the trianlge ``covering" the origin, with the x-,y-, and z-intercept at 1,1, and 1.)
+Therefore, when a linear mapping is applied to transform this hyperplane from the domain space into the codomain space, an in appropriate choice of $\ve{c}$ will lead to no solution.
+This example (where there is no solution even when the line ($\ve{c'}-\mu\n$) is not parallel to the hyperplane) corresponds to the cases where the fluxes in some bins must encroach on the negative fluxes regions in order to achieve optimal loss functions.
+
+\subsection{when the linear transformation is singular}\label{when the linear transformation is singular}
+Another problem is that \matr{A} will be a singular matrix. Since the matrix \matr{A} is constructed from the sum of m outer products of length n vectors, the number of non-zero eigenvalues of the matrix A is $\le$ m. Therefore there are at least (n-m) eigenvalues which equal to zero\footnote{Be careful when dealing with singular matrices such as \matr{A}, as computer programs in general will compute (incorrectly) to give non-zero eigenvalues, and successfully producing an ``inverse" matrix without raising a warning.}.% I'm not sure that this isn't a case of "a non-unique solution out of multiple solutions"; but I don't think it is after experimenting with a 3x3 matrix of A_3 = np.outer(np.arange(1,4),np.arange(1,4)).
+Meaning the linear transformation will map the $\sum f_i =1$ hyperplane in the domain into a m-dimensional manifold in the codomain. In the rare case that the $\n$ vector in the codomain is contained by this m- (or fewer-) dimensional manifold, it is possible to have infinitely many solutions, with at least (n-m) degrees of freedom in the solution space.
+% If it's a m-1 manifold, it's going to have n-m+1 DoF. If it's a m-2 manifold, then it's going to have n-m+2 DoF in the solution space, etc.
+
+(Notice that the measured reaction rates only control $\ve{c}$. Therefore if the m-manifold is parallel to the $\n$ vector (i.e. has bases vectors that can span $\n$) in the codomain (i.e. condition \ref{infinitely-many-solutions} is met), then that means we have a response matrix where only a very specific ratio of measured reaction rates %even before applying the boundary condition
+will give a solution at all. Outside of this range of physically possible measured reaction rates ratios, we will reqiure $\sum f_i \neq 1$ in order to fit to it optimally.
+The fact that $\n$ is parallel to the manifold means we have a response matrix that causes no change at all in total $\chi^2$ even after changing the fluxes in all manner imaginable. I.e. we must have a flat cross-section in that case.)
+
+A sensible choice of the response matrix \matr{R} (i.e. one without constant cross sections) will lead to a m-manifold that does not span the vector $\n$. However, if one is feeling paranoid, they can check that their m-manifold object in the codomain space does not span the $\n$ vector by \matr{A} matrix does not by checking that all m right-singular-vectors $\ve{\theta}_k$
+\begin{equation}
+\n - \sum_k^m (\n \cdot \ve{\theta}_k)\ve{\theta}_k \neq \ve{0}
+\end{equation}
+
+\subsection{Non-linear transformation}
+In this section we will look more closely at loss functions which have a linear part and a non-linear part.
+
+We have designed our loss function to increase logarithmically, so harsher penalty will be given by the loss function as $f_i \to 0^{+}$, as explained in section \ref{justification}.
+Thus, the problems discussed in section \ref{Linear transformation} and \ref{when the linear transformation is singular} are usually avoided when using this loss funciton,
+% where the non-linear part only affects the $i^{th}$ dimension of the 
+% It's lucky that none of the non-linear terms has more than 1 basis inside its brackets, i.e. it's only $ln(f[i])$ etc., not $ln(f[i]+f[i+1])$
+
+\begin{equation}
+    Loss Function(\ve{f}, \ve{f^{DEF}}) = \matr{A}\ve{f} + \tau \sum_i^n(f_i ln(\frac{f_i}{f^{DEF}_i}))
+\end{equation}
+The first term in the loss function is linear, while the second term is non-linear.
+
+For the moment, let's assume that \matr{A} is non-singular, and $\tau$ is very small, i.e. for values of $f_i$ far away from zero, the second term is effectively zero.
+
+Therefore, the majority of the hyperplane in codomain space will look like $\matr{A}\ve{f} \{\forall \sum\limits_i{f_i}=1\}$. In 3D, this is the same as the triangle formed by $\ve{A}_1$, $\ve{A}_2$, $\ve{A}_3$, which are the three column vectors that makes up \matr{A}. Generalized to higher dimension, it is the (n-1) simplex formed by the n column vectors of \matr{A}.
+
+At this point, it is convenient to define the following vector $\ve{H}$, such that
+\begin{equation}
+    \ve{H}=\matr{A}\ve{f}
+\end{equation}
+is the partial transformation of $\ve{f}$ into codomain $\ve{G}$. 
+
+\begin{equation}
+    G_i=H_i + \tau ln(f_i)
+\end{equation}
+
+Note that the Jacobian of these transformations are as follows:
+\begin{align}
+    (\matr{J}_{\ve{f}\to\ve{H}})_{ij} &= A_{ij}\\
+    (\matr{J}_{\ve{f}\to\ve{G}})_{ij} &= A_{ij} + \tau \frac{\delta^*_{ij}}{f_i}
+\end{align}
+where $\delta^*$ is, again, the Kronecka delta.
+
+After each of the above transformation, the direction of the hyperplane's normal vector is given as (without proof) $\n\cdot\matr{J}^{-1}$, where $\n$ is the unnormalized vector defined in \ref{unnormalized 111 vector}. But note that this equation is only meaningful if A is non-singular, which is not true for the case when the is underdetermined.
+
+Instead all we can do is check that the 
+
+% We just have to make sure that the non-zero eigenvalue eigenvectors are not pointed in $\n'$.
+
+\subsection{Other failed approaches}
+% In the spirit of science, we should record the trials and errors
+In science it is equally important to record what failed and why. Here are the list of other starting points that led to nowhere.
+\begin{itemize}
+    \item `Using Stokes theorem as the starting point: leads to no useful results/intuition
+    \item `Using Divergence theorem as the starting point: only gives information about the curvature of an already known point, not useful for finding points where the gradient = 0
+    \item `Draw a line ($\ve{u}+\lambda\ve{v}$), anchored at a known global minimum $\ve{u}$, pointed at an arbitrary direction $\ve{v}$. If the loss function has a point $\frac{\partial(loss)}{\partial\lambda} =0 $ where $\lambda\neq0$, then we know that a local minimum is present': Not feasible without knowning which directions $\ve{v}$ to draw the line in in the first place. 
+\end{itemize}
+
+\end{appendices}
+\end{document}
+% Add glossary
+%`
