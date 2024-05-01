@@ -3,7 +3,7 @@ from .graphics import print_MAXED, print_IMAXED, print_MAXED_baseclass, print_AM
 
 from numpy import array as ary
 from numpy import log as ln
-from numpy import sqrt, exp, mod, float32
+from numpy import sqrt, exp, mod, float32, float64
 import numpy as np
 import time
 import random
@@ -187,7 +187,7 @@ class AMAXED(UnfoldingDataHandlerLite):
 
         def second_deriv(beta):
             total_flux = phi + beta*d_phi
-            return - (d_phi.sum()/total_flux.sum())**2 + ((self.fDEF*d_phi)/total_flux**2) @ d_phi + 2*d_mu*( 2*(b-a)@d_phi + 2*beta * d_phi@self.covar_phi_inv@d_phi ) + (mu + beta*d_mu) * (2 * d_phi@self.covar_phi_inv@d_phi)
+            return - (d_phi.sum()/total_flux.sum())**2 + ((self.fDEF*d_phi)/total_flux**2) @ d_phi + d_mu*( 2*(b-a)@d_phi + 2*beta * d_phi@self.covar_phi_inv@d_phi ) + (mu + beta*d_mu) * (2 * d_phi@self.covar_phi_inv@d_phi)
 
         upper_max = -1/np.clip( (d_phi/phi).min(), -np.inf, -1) # upper end of the search window where the root should be found
         upper = min([upper_max, upper])
@@ -258,7 +258,8 @@ class _MAXED_baseclass(UnfoldingDataHandlerLite):
 
         # rescale apriori into an fDEF with best fit yield.
         N_ap = self.Rm @ self.apriori
-        self._apriori_scale_factor = (self.N_meas @ self.covar_N_inv @ N_ap)/(N_ap @ self.covar_N_inv @ N_ap)
+        # self._apriori_scale_factor = (self.N_meas @ self.covar_N_inv @ N_ap)/(N_ap @ self.covar_N_inv @ N_ap)
+        self._apriori_scale_factor = 1
         self.fDEF = self._apriori_scale_factor * ary(self.apriori)
 
         # the omega constant = self.desired_chi2
@@ -559,7 +560,7 @@ class _RanNumGenerator():
                 k = m
                 l = mod(m3*l + a3, d3)
                 if mod(l*m, 64)>=32:
-                    s += np.float(t)
+                    s += float64(t)
                 t *= float32(0.5)
             U[ii] = float32(s)
 
