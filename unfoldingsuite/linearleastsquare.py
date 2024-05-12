@@ -49,6 +49,8 @@ class PseudoInverse(UnfoldingDataHandlerLite):
         self.phi = SlicableDeque([self.apriori])
         self.N = SlicableDeque([self.Rm @ self.apriori])
         self.chi2_val = SlicableDeque([self._get_chi2(append=False)])
+        self.pre_multiplier = self.Rm.T @ self.covar_N_inv
+        self.covar_phi = pinv(self.covar_phi_inv)
 
         if self.verbosity>=2:
             print('Overwriting the self.phi, self.N, self.chi2_val, and self.step_size lists as SlicableDeques.')
@@ -87,7 +89,8 @@ class PseudoInverse(UnfoldingDataHandlerLite):
         It so happens that some terms cancel when performing the direct step,
         leaving a very simple expression as follows.
         """
-        return self.Rm_inv @ diff_N
+        return self.covar_phi @ (self.pre_multiplier @ diff_N) 
+        # return self.Rm_inv @ diff_N
 
     def restrict_near_zero_bases(self, diff_N, current_phi):
         """

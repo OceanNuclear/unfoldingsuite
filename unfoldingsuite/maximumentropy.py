@@ -489,6 +489,7 @@ class MAXED(_MAXED_baseclass):
         jac = lambda l_vec: -self.Jacobian(l_vec) # negative sign follows through to the first order derivative.
         res = minimize(fun, x0=initial_l, method='L-BFGS-B', jac=jac, *args, **kwargs)
         l_vec = res.x
+        self.nfev = res.nfev
         if self.verbosity>=1:
             print("L-BFGS-B minimization result=\n", res)
         self.lambda_vector = [l_vec,]
